@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WGPU WebAssembly Demo</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100vh;
+            background-color: #222;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-family: Arial, sans-serif;
+        }
+        canvas {
+            border: 1px solid #444;
+            margin-top: 20px;
+        }
+    </style>
+</head>
+<body>
+    <h1>WGPU Pipeline Demo</h1>
+    <div id="wasm-example"></div>
+    <script type="module">
+        import init from './wgpu_viewer.js';
+
+        async function run() {
+            try {
+                // For debugging
+                console.log("Starting WebAssembly initialization...");
+                
+                // Initialize the WASM module
+                await init();
+                console.log("WASM initialized successfully!");
+                
+                // Make sure the canvas is visible
+                const canvas = document.querySelector('canvas');
+                if (canvas) {
+                    console.log("Canvas found:", canvas);
+                    canvas.style.display = 'block';
+                    canvas.style.width = '100%';
+                    canvas.style.maxWidth = '800px';
+                } else {
+                    console.error("Canvas element not found!");
+                }
+            } catch (e) {
+                console.error("Error initializing WASM:", e);
+                document.body.innerHTML += `<p style="color: red">Error: ${e.message}</p>`;
+            }
+        }
+
+        run();
+    </script>
+</body>
+</html>

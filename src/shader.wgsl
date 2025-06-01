@@ -70,7 +70,11 @@ fn vs_main(
 
     var out: VertexOutput;
     out.clip_position = camera.view_proj * world_position;
-    out.tex_coords = model.tex_coords;
+    
+    // Apply texture scaling - higher values make texture repeat more often (smaller appearance)
+    let texture_scale = 1.15;  // Adjust this value to change texture scale
+    out.tex_coords = model.tex_coords * texture_scale;
+    
     out.tangent_position = tangent_matrix * world_position.xyz;
     out.tangent_view_position = tangent_matrix * camera.view_pos.xyz;
     out.tangent_light_position = tangent_matrix * light.position;
@@ -98,7 +102,8 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let ambient_color = light.color * ambient_strength;
 
     // Create the lighting vectors
-    let tangent_normal = object_normal.xyz * 2.0 - 1.0;
+    let bump_strength = 0.01; // Adjust this value between 0.0 (no effect) and 1.0+ (stronger effect)
+    let tangent_normal = normalize(mix(vec3(0.0, 0.0, 1.0), object_normal.xyz * 2.0 - 1.0, bump_strength));
     let light_dir = normalize(in.tangent_light_position - in.tangent_position);
     let view_dir = normalize(in.tangent_view_position - in.tangent_position);
     let half_dir = normalize(view_dir + light_dir);

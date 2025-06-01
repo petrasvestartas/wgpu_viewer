@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebGPU Camera Tutorial</title>
+</head>
+
+<body>
+    <div id="wasm-example"></div>
+    <script type="module">
+        import init from "./pkg/wgpu_viewer.js";
+        init().then(() => {
+            console.log("WASM Loaded");
+            // Resize canvas if it exists
+            setTimeout(() => {
+                const canvas = document.querySelector('canvas');
+                if (canvas) {
+                    canvas.width = Math.min(1280, window.innerWidth - 30);
+                    canvas.height = Math.min(720, window.innerHeight - 30);
+                }
+            }, 100);
+        });
+    </script>
+    <style>
+        body {
+            background-color: #222;
+            margin: 0;
+            padding: 15px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            box-sizing: border-box;
+        }
+        canvas {
+            background-color: black;
+            box-shadow: 0 0 20px rgba(0,0,0,0.5);
+            width: 100%;
+            max-width: 1280px;
+            height: auto;
+        }
+        #wasm-example {
+            width: 100%;
+            display: flex;
+            justify-content: center;
+        }
+    </style>
+</body>
+
+</html>

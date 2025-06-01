@@ -1,4 +1,7 @@
-# WebGPU Camera Example
+# WebGPU Viewer
+
+![Screenshot from 2025-06-01 19-20-28](https://github.com/user-attachments/assets/5c328e87-3e67-4330-a69c-7c460a8cb2c8)
+
 
 ## Project Structure
 

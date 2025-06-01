@@ -44,7 +44,7 @@ cargo run
 # Build WASM
 wasm-pack build --target web
 
-# Serve
+# Serve and close server with Ctrl+C
 python3 -m http.server 8002
 # Open http://localhost:8002
 ```

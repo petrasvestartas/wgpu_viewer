@@ -1,7 +1,28 @@
 use std::{f32::consts::PI, iter};
 
+/// Specifies what type of geometry to render
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub enum RenderMode {
+    All = 0,
+    Points = 1,
+    Lines = 2,
+    Meshes = 3,
+}
+
+impl Default for RenderMode {
+    fn default() -> Self {
+        RenderMode::All
+    }
+}
+
+mod camera;
+mod model;
+mod resources;
+mod texture;
+
 use cgmath::prelude::*;
 use wgpu::util::DeviceExt;
+use crate::model::{DrawModel, DrawLight, DrawPoints, DrawLines, Vertex};
 use winit::{
     event::*,
     event_loop::EventLoop,
@@ -11,13 +32,6 @@ use winit::{
 
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
-
-mod camera;
-mod model;
-mod resources;
-mod texture;
-
-use model::{DrawLight, DrawModel, Vertex};
 
 const NUM_INSTANCES_PER_ROW: u32 = 10;
 
@@ -138,7 +152,12 @@ struct State<'a> {
     queue: wgpu::Queue,
     config: wgpu::SurfaceConfiguration,
     render_pipeline: wgpu::RenderPipeline,
+    point_pipeline: Option<wgpu::RenderPipeline>, // Pipeline for points
+    line_pipeline: Option<wgpu::RenderPipeline>,  // Pipeline for lines
     obj_model: model::Model,
+    point_model: Option<model::PointModel>,      // Optional point cloud model
+    line_model: Option<model::LineModel>,        // Optional line model
+    render_mode: RenderMode,                     // Current rendering mode
     camera: camera::Camera,                      // UPDATED!
     projection: camera::Projection,              // NEW!
     camera_controller: camera::CameraController, // UPDATED!
@@ -343,6 +362,10 @@ impl<'a> State<'a> {
         });
 
         const SPACE_BETWEEN: f32 = 3.0;
+        // Print the constants for debugging
+        println!("DEBUG: NUM_INSTANCES_PER_ROW = {}", NUM_INSTANCES_PER_ROW);
+        println!("DEBUG: SPACE_BETWEEN = {}", SPACE_BETWEEN);
+        
         let instances = (0..NUM_INSTANCES_PER_ROW)
             .flat_map(|z| {
                 (0..NUM_INSTANCES_PER_ROW).map(move |x| {
@@ -350,6 +373,9 @@ impl<'a> State<'a> {
                     let z = SPACE_BETWEEN * (z as f32 - NUM_INSTANCES_PER_ROW as f32 / 2.0);
 
                     let position = cgmath::Vector3 { x, y: 0.0, z };
+                    
+                    // Print all mesh box positions
+                    println!("MESH BOX: grid[{}][{}] = position({:.1}, {:.1}, {:.1})", z, x, position.x, position.y, position.z);
 
                     let rotation = if position.is_zero() {
                         cgmath::Quaternion::from_axis_angle(
@@ -396,10 +422,151 @@ impl<'a> State<'a> {
             label: Some("camera_bind_group"),
         });
 
+        // Load standard mesh model
         let obj_model =
             resources::load_model("cube.obj", &device, &queue, &texture_bind_group_layout)
                 .await
                 .unwrap();
+        
+        // Create a dense 3D grid of points
+        let grid_size = 50; // Number of points along each axis
+        let total_points = grid_size * grid_size * grid_size;
+        println!("DEBUG: Creating dense 3D grid with {} points ({} per axis)", total_points, grid_size);
+        
+        let mut point_vertices = Vec::with_capacity(total_points);
+        
+        let grid_extent = 5.0; // Total size of the grid (from -extent to +extent)
+        let step = (2.0 * grid_extent) / (grid_size as f32 - 1.0);
+        
+        // Create points in a 3D grid pattern
+        for i in 0..grid_size {
+            for j in 0..grid_size {
+                for k in 0..grid_size {
+                    // Calculate position in range [-grid_extent, grid_extent]
+                    let x = -grid_extent + (i as f32) * step;
+                    let y = -grid_extent + (j as f32) * step;
+                    let z = -grid_extent + (k as f32) * step;
+                    
+                    // Calculate distance from center for color
+                    let distance = (x*x + y*y + z*z).sqrt() / (grid_extent * 1.732); // max distance = sqrt(3) * extent
+                    let normalized_dist = distance.min(1.0);
+                    
+                    // Color based on position in grid
+                    // Using blue to cyan gradient
+                    let color_r = 0.0;
+                    let color_g = normalized_dist * 0.8; 
+                    let color_b = 1.0;
+                    
+                    point_vertices.push(model::PointVertex {
+                        position: [x, y, z],
+                        color: [color_r, color_g, color_b],
+                        size: 1.5, // Small size for dense appearance
+                    });
+                }
+            }
+        }
+        
+        println!("DEBUG: Generated {} grid points", point_vertices.len());
+        
+        let axis_length = 5.0;
+
+        // Create a point cloud model for the cube corners
+        let point_model = Some(model::PointModel::new(
+            &device,
+            "point_cloud",
+            &point_vertices,
+        ));
+        
+        // Create line vertices collection
+        let mut line_vertices = Vec::new();
+        
+        // Print debug info about lengths
+        println!("DEBUG: Creating vertical lines for {} instances", instances.len());
+        
+        // Create vertical lines at each mesh box position with the same rotation as the boxes
+        for instance in &instances {
+            let pos = instance.position;
+            let rotation = instance.rotation;
+            
+            // Convert the quaternion rotation to a 4x4 matrix
+            let rotation_matrix = cgmath::Matrix4::from(rotation);
+            
+            // Define the start and end points in local space
+            let start_local = cgmath::Point3::new(0.0, -0.5, 0.0);
+            let end_local = cgmath::Point3::new(0.0, 1.5, 0.0);
+            
+            // Transform the points using the rotation matrix and then translate
+            let start_rotated = rotation_matrix * cgmath::Vector4::new(start_local.x, start_local.y, start_local.z, 1.0);
+            let end_rotated = rotation_matrix * cgmath::Vector4::new(end_local.x, end_local.y, end_local.z, 1.0);
+            
+            // Get the final world positions
+            let start_world = cgmath::Point3::new(
+                start_rotated.x + pos.x,
+                start_rotated.y + pos.y,
+                start_rotated.z + pos.z
+            );
+            
+            let end_world = cgmath::Point3::new(
+                end_rotated.x + pos.x,
+                end_rotated.y + pos.y,
+                end_rotated.z + pos.z
+            );
+            
+            // Add the transformed line vertices
+            line_vertices.push(model::LineVertex {
+                position: [start_world.x, start_world.y, start_world.z],
+                color: [1.0, 0.0, 0.0], // Red for high visibility
+            });
+            
+            line_vertices.push(model::LineVertex {
+                position: [end_world.x, end_world.y, end_world.z],
+                color: [1.0, 0.0, 0.0],
+            });
+            
+            // Debug info for center position
+            if pos.x.abs() < 0.001 && pos.z.abs() < 0.001 {
+                println!("DEBUG: Created line at center: start({:.2}, {:.2}, {:.2}) end({:.2}, {:.2}, {:.2})", 
+                         start_world.x, start_world.y, start_world.z,
+                         end_world.x, end_world.y, end_world.z);
+            }
+        }
+        
+        // Now add coordinate axes to the line vertices
+        line_vertices.push(model::LineVertex {
+            position: [0.0, 0.0, 0.0],
+            color: [1.0, 0.0, 0.0],
+        });
+        line_vertices.push(model::LineVertex {
+            position: [axis_length, 0.0, 0.0],
+            color: [1.0, 0.0, 0.0],
+        });
+        
+        // Y axis (green)
+        line_vertices.push(model::LineVertex {
+            position: [0.0, 0.0, 0.0],
+            color: [0.0, 1.0, 0.0],
+        });
+        line_vertices.push(model::LineVertex {
+            position: [0.0, axis_length, 0.0],
+            color: [0.0, 1.0, 0.0],
+        });
+        
+        // Z axis (blue)
+        line_vertices.push(model::LineVertex {
+            position: [0.0, 0.0, 0.0],
+            color: [0.0, 0.0, 1.0],
+        });
+        line_vertices.push(model::LineVertex {
+            position: [0.0, 0.0, axis_length],
+            color: [0.0, 0.0, 1.0],
+        });
+        
+        // Create the line model from the vertices
+        let line_model = Some(model::LineModel::new(
+            &device,
+            "grid",
+            &line_vertices,
+        ));
 
         let light_uniform = LightUniform {
             position: [2.0, 2.0, 2.0],
@@ -467,6 +634,145 @@ impl<'a> State<'a> {
             )
         };
 
+        // Create point pipeline with improved point size support
+        let point_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("Point Pipeline Layout"),
+            bind_group_layouts: &[&camera_bind_group_layout],
+            push_constant_ranges: &[],
+        });
+        
+        // Get device features to check for necessary point size features
+        let supports_point_size = device.features().contains(wgpu::Features::SHADER_PRIMITIVE_INDEX);
+        println!("DEBUG: Device supports SHADER_PRIMITIVE_INDEX feature: {}", supports_point_size);
+        
+        let point_pipeline = Some({
+            let shader = wgpu::ShaderModuleDescriptor {
+                label: Some("Point Shader"),
+                source: wgpu::ShaderSource::Wgsl(include_str!("point.wgsl").into()),
+            };
+            
+            // Create a pipeline specific for point primitives with enhanced size support
+            let shader_module = device.create_shader_module(shader);
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some("Point Render Pipeline"),
+                layout: Some(&point_pipeline_layout),
+                vertex: wgpu::VertexState {
+                    module: &shader_module,
+                    entry_point: Some("vs_main"),
+                    buffers: &[model::PointVertex::desc()],
+                    compilation_options: Default::default(),
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: &shader_module,
+                    entry_point: Some("fs_main"),
+                    compilation_options: Default::default(),
+                    targets: &[Some(wgpu::ColorTargetState {
+                        format: config.format,
+                        // Use alpha blending for smoother points
+                        blend: Some(wgpu::BlendState {
+                            color: wgpu::BlendComponent {
+                                src_factor: wgpu::BlendFactor::SrcAlpha,
+                                dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
+                                operation: wgpu::BlendOperation::Add,
+                            },
+                            alpha: wgpu::BlendComponent {
+                                src_factor: wgpu::BlendFactor::One,
+                                dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
+                                operation: wgpu::BlendOperation::Add,
+                            },
+                        }),
+                        write_mask: wgpu::ColorWrites::ALL,
+                    })],
+                }),
+                primitive: wgpu::PrimitiveState {
+                    topology: wgpu::PrimitiveTopology::PointList,
+                    strip_index_format: None,
+                    front_face: wgpu::FrontFace::Ccw,
+                    cull_mode: None, // Don't cull points
+                    // Setting this to anything other than Fill requires Features::NON_FILL_POLYGON_MODE
+                    polygon_mode: wgpu::PolygonMode::Fill,
+                    // Requires Features::DEPTH_CLIP_CONTROL
+                    unclipped_depth: false,
+                    // Requires Features::CONSERVATIVE_RASTERIZATION
+                    conservative: false,
+                },
+                depth_stencil: Some(wgpu::DepthStencilState {
+                    format: texture::Texture::DEPTH_FORMAT,
+                    depth_write_enabled: true,
+                    depth_compare: wgpu::CompareFunction::Less,
+                    stencil: wgpu::StencilState::default(),
+                    bias: wgpu::DepthBiasState::default(),
+                }),
+                multisample: wgpu::MultisampleState {
+                    count: 1,
+                    mask: !0,
+                    alpha_to_coverage_enabled: false,
+                },
+                multiview: None,
+                cache: None,
+            })
+        });
+        
+        // Create line pipeline
+        let line_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("Line Pipeline Layout"),
+            bind_group_layouts: &[&camera_bind_group_layout],
+            push_constant_ranges: &[],
+        });
+        
+        let line_pipeline = Some({
+            let shader = wgpu::ShaderModuleDescriptor {
+                label: Some("Line Shader"),
+                source: wgpu::ShaderSource::Wgsl(include_str!("line.wgsl").into()),
+            };
+            
+            // Create a pipeline specific for line primitives
+            let shader_module = device.create_shader_module(shader);
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some("Line Render Pipeline"),
+                layout: Some(&line_pipeline_layout),
+                vertex: wgpu::VertexState {
+                    module: &shader_module,
+                    entry_point: Some("vs_main"),
+                    buffers: &[model::LineVertex::desc()],
+                    compilation_options: Default::default(),
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: &shader_module,
+                    entry_point: Some("fs_main"),
+                    compilation_options: Default::default(),
+                    targets: &[Some(wgpu::ColorTargetState {
+                        format: config.format,
+                        blend: Some(wgpu::BlendState::REPLACE),
+                        write_mask: wgpu::ColorWrites::ALL,
+                    })],
+                }),
+                primitive: wgpu::PrimitiveState {
+                    topology: wgpu::PrimitiveTopology::LineList,
+                    strip_index_format: None,
+                    front_face: wgpu::FrontFace::Ccw,
+                    cull_mode: Some(wgpu::Face::Back),
+                    polygon_mode: wgpu::PolygonMode::Fill,
+                    unclipped_depth: false,
+                    conservative: false,
+                },
+                depth_stencil: Some(wgpu::DepthStencilState {
+                    format: texture::Texture::DEPTH_FORMAT,
+                    depth_write_enabled: true,
+                    depth_compare: wgpu::CompareFunction::Less,
+                    stencil: wgpu::StencilState::default(),
+                    bias: wgpu::DepthBiasState::default(),
+                }),
+                multisample: wgpu::MultisampleState {
+                    count: 1,
+                    mask: !0,
+                    alpha_to_coverage_enabled: false,
+                },
+                multiview: None,
+                cache: None,
+            })
+        });
+
         let light_render_pipeline = {
             let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Light Pipeline Layout"),
@@ -523,25 +829,29 @@ impl<'a> State<'a> {
             device,
             queue,
             config,
+            size,
             render_pipeline,
+            point_pipeline,
+            line_pipeline,
             obj_model,
+            point_model, // Assigned point model
+            line_model,  // Assigned line model
+            render_mode: RenderMode::default(),  // Default to rendering everything
             camera,
             projection,
             camera_controller,
+            camera_uniform,
             camera_buffer,
             camera_bind_group,
-            camera_uniform,
             instances,
             instance_buffer,
             depth_texture,
-            size,
             light_uniform,
             light_buffer,
             light_bind_group,
             light_render_pipeline,
             #[allow(dead_code)]
             debug_material,
-            // NEW!
             mouse_pressed: false,
         }
     }
@@ -566,6 +876,40 @@ impl<'a> State<'a> {
     // UPDATED!
     fn input(&mut self, event: &WindowEvent) -> bool {
         match event {
+            WindowEvent::KeyboardInput {
+                event:
+                    KeyEvent {
+                        physical_key: PhysicalKey::Code(key),
+                        state: ElementState::Pressed,
+                        ..
+                    },
+                ..
+            } => {
+                // Handle number keys for render mode selection
+                match key {
+                    KeyCode::Digit0 => {
+                        self.render_mode = RenderMode::All;
+                        println!("Render mode: All (0)");
+                        true
+                    }
+                    KeyCode::Digit1 => {
+                        self.render_mode = RenderMode::Points;
+                        println!("Render mode: Points (1)");
+                        true
+                    }
+                    KeyCode::Digit2 => {
+                        self.render_mode = RenderMode::Lines;
+                        println!("Render mode: Lines (2)");
+                        true
+                    }
+                    KeyCode::Digit3 => {
+                        self.render_mode = RenderMode::Meshes;
+                        println!("Render mode: Meshes (3)");
+                        true
+                    }
+                    _ => self.camera_controller.process_keyboard(*key, ElementState::Pressed),
+                }
+            }
             WindowEvent::KeyboardInput {
                 event:
                     KeyEvent {
@@ -656,21 +1000,72 @@ impl<'a> State<'a> {
                 timestamp_writes: None,
             });
 
-            render_pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
-            render_pass.set_pipeline(&self.light_render_pipeline);
-            render_pass.draw_light_model(
-                &self.obj_model,
-                &self.camera_bind_group,
-                &self.light_bind_group,
-            );
+            // Render based on the selected render mode
+            match self.render_mode {
+                RenderMode::All => {
+                    // Render the light model
+                    render_pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
+                    render_pass.set_pipeline(&self.light_render_pipeline);
+                    render_pass.draw_light_model(
+                        &self.obj_model,
+                        &self.camera_bind_group,
+                        &self.light_bind_group,
+                    );
+                    
+                    // Render the mesh model
+                    render_pass.set_pipeline(&self.render_pipeline);
+                    render_pass.draw_model_instanced(
+                        &self.obj_model,
+                        0..self.instances.len() as u32,
+                        &self.camera_bind_group,
+                        &self.light_bind_group,
+                    );
 
-            render_pass.set_pipeline(&self.render_pipeline);
-            render_pass.draw_model_instanced(
-                &self.obj_model,
-                0..self.instances.len() as u32,
-                &self.camera_bind_group,
-                &self.light_bind_group,
-            );
+                    // Render points if available
+                    if let (Some(pipeline), Some(model)) = (&self.point_pipeline, &self.point_model) {
+                        render_pass.set_pipeline(pipeline);
+                        render_pass.draw_points(model, &self.camera_bind_group);
+                    }
+
+                    // Render lines if available
+                    if let (Some(pipeline), Some(model)) = (&self.line_pipeline, &self.line_model) {
+                        render_pass.set_pipeline(pipeline);
+                        render_pass.draw_lines(model, &self.camera_bind_group);
+                    }
+                },
+                RenderMode::Points => {
+                    // Render only points
+                    if let (Some(pipeline), Some(model)) = (&self.point_pipeline, &self.point_model) {
+                        render_pass.set_pipeline(pipeline);
+                        render_pass.draw_points(model, &self.camera_bind_group);
+                    }
+                },
+                RenderMode::Lines => {
+                    // Render only lines
+                    if let (Some(pipeline), Some(model)) = (&self.line_pipeline, &self.line_model) {
+                        render_pass.set_pipeline(pipeline);
+                        render_pass.draw_lines(model, &self.camera_bind_group);
+                    }
+                },
+                RenderMode::Meshes => {
+                    // Render the light and mesh models
+                    render_pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
+                    render_pass.set_pipeline(&self.light_render_pipeline);
+                    render_pass.draw_light_model(
+                        &self.obj_model,
+                        &self.camera_bind_group,
+                        &self.light_bind_group,
+                    );
+                    
+                    render_pass.set_pipeline(&self.render_pipeline);
+                    render_pass.draw_model_instanced(
+                        &self.obj_model,
+                        0..self.instances.len() as u32,
+                        &self.camera_bind_group,
+                        &self.light_bind_group,
+                    );
+                },
+            }
         }
         self.queue.submit(iter::once(encoder.finish()));
         output.present();

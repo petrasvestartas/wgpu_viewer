@@ -16,7 +16,6 @@ impl Default for RenderMode {
 }
 
 mod camera;
-mod config;
 mod instance;
 mod model;
 mod model_point;
@@ -69,7 +68,7 @@ struct State<'a> {
     projection: camera::Projection,              // NEW!
     camera_controller: camera::CameraController, // UPDATED!
     camera_uniform: CameraUniform,
-    config_uniform: config::ConfigUniform,       // Global configuration settings
+    // Config is now hardcoded in the shader
     camera_buffer: wgpu::Buffer,
     camera_bind_group: wgpu::BindGroup,
     instances: Vec<Instance>,
@@ -275,7 +274,7 @@ impl<'a> State<'a> {
         });
         
         // Initialize the global configuration uniform
-        let config_uniform = config::ConfigUniform::new(&device);
+        // Point size is now hardcoded in the shader
 
         // Load standard mesh model
         let obj_model =
@@ -469,7 +468,7 @@ impl<'a> State<'a> {
         // Create point pipeline with improved point size support
         let point_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("Point Pipeline Layout"),
-            bind_group_layouts: &[&camera_bind_group_layout, &config_uniform.bind_group_layout],
+            bind_group_layouts: &[&camera_bind_group_layout],
             push_constant_ranges: &[],
         });
         
@@ -674,7 +673,7 @@ impl<'a> State<'a> {
             projection,
             camera_controller,
             camera_uniform,
-            config_uniform,
+            // Config values now hardcoded in the shader
             camera_buffer,
             camera_bind_group,
             instances,
@@ -745,29 +744,7 @@ impl<'a> State<'a> {
                         println!("Render mode: Meshes (3)");
                         true
                     }
-                    // Add '[' and ']' keys to decrease/increase point size
-                    KeyCode::BracketLeft => {
-                        // Decrease point size with a minimum of 0.001
-                        let current_size = config::get_point_size();
-                        let new_size = (current_size - 0.005).max(0.001);
-                        config::set_point_size(new_size);
-                        
-                        // Update the uniform buffer
-                        self.config_uniform.update(&self.queue);
-                        println!("Point size decreased to: {:.3}", new_size);
-                        true
-                    }
-                    KeyCode::BracketRight => {
-                        // Increase point size with a maximum of 0.1
-                        let current_size = config::get_point_size();
-                        let new_size = (current_size + 0.005).min(0.1);
-                        config::set_point_size(new_size);
-                        
-                        // Update the uniform buffer
-                        self.config_uniform.update(&self.queue);
-                        println!("Point size increased to: {:.3}", new_size);
-                        true
-                    }
+                    // Point size is now hardcoded directly in the shader
                     _ => self.camera_controller.process_keyboard(*key, ElementState::Pressed),
                 }
             }
@@ -885,7 +862,7 @@ impl<'a> State<'a> {
                     // Render points if available - use the quad-based point model for better visuals
                     if let (Some(pipeline), Some(model)) = (&self.point_pipeline, &self.quad_point_model) {
                         render_pass.set_pipeline(pipeline);
-                        render_pass.draw_quad_points(model, &self.camera_bind_group, &self.config_uniform.bind_group);
+                        render_pass.draw_quad_points(model, &self.camera_bind_group);
                     }
 
                     // Render lines if available
@@ -898,7 +875,7 @@ impl<'a> State<'a> {
                     // Render only points using quad-based rendering for better visuals
                     if let (Some(pipeline), Some(model)) = (&self.point_pipeline, &self.quad_point_model) {
                         render_pass.set_pipeline(pipeline);
-                        render_pass.draw_quad_points(model, &self.camera_bind_group, &self.config_uniform.bind_group);
+                        render_pass.draw_quad_points(model, &self.camera_bind_group);
                     }
                 },
                 RenderMode::Lines => {

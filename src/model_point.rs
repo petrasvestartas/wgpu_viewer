@@ -14,6 +14,9 @@ use wgpu::util::DeviceExt;
 use crate::instance::Instance;
 // use cgmath::prelude::*;  // Not currently used
 
+// Configuration constants
+pub const POINT_SIZE: f32 = 0.02;  // Default point size
+
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct PointVertex {
@@ -279,16 +282,7 @@ where
 
 /// A trait for drawing billboard-based points (rendered as quads)
 #[allow(dead_code)]
-pub trait DrawQuadPoints<'a> {
-    fn draw_quad_points(
-        &mut self,
-        quad_model: &'a QuadPointModel,
-        camera_bind_group: &'a wgpu::BindGroup,
-        config_bind_group: &'a wgpu::BindGroup,
-    );
-}
-
-impl<'a, 'b> DrawQuadPoints<'b> for wgpu::RenderPass<'a>
+pub trait DrawQuadPoints<'a, 'b>
 where
     'b: 'a,
 {
@@ -296,11 +290,20 @@ where
         &mut self,
         quad_model: &'b QuadPointModel,
         camera_bind_group: &'b wgpu::BindGroup,
-        config_bind_group: &'b wgpu::BindGroup,
+    );
+}
+
+impl<'a, 'b> DrawQuadPoints<'a, 'b> for wgpu::RenderPass<'a>
+where
+    'b: 'a,
+{
+    fn draw_quad_points(
+        &mut self,
+        quad_model: &'b QuadPointModel,
+        camera_bind_group: &'b wgpu::BindGroup,
     ) {
         self.set_vertex_buffer(0, quad_model.vertex_buffer.slice(..));
         self.set_bind_group(0, camera_bind_group, &[]);
-        self.set_bind_group(1, config_bind_group, &[]); // Set config bind group
         
         if let Some(index_buffer) = &quad_model.indices {
             self.set_index_buffer(index_buffer.slice(..), wgpu::IndexFormat::Uint32);
@@ -357,7 +360,7 @@ pub fn generate_point_cloud(instances: &[Instance]) -> Vec<PointVertex> {
                     point_vertices.push(PointVertex {
                         position: [world_x, world_y, world_z],
                         color: [color_r, color_g, color_b],
-                        size: 1.5, // Small size for dense appearance
+                        size: POINT_SIZE, // Use the configurable point size
                     });
                 }
             }

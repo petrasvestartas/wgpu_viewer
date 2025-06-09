@@ -6,19 +6,12 @@ struct CameraUniform {
     aspect_ratio: vec4<f32>, // Only using x component
 };
 
-// Global configuration parameters
-struct ConfigUniform {
-    // First vec4: x=point_size, yzw=padding
-    point_size_and_padding: vec4<f32>,
-    // Second vec4: reserved for future parameters
-    reserved: vec4<f32>,
-};
+// Point size now comes from vertex data
 
 @group(0) @binding(0)
 var<uniform> camera: CameraUniform;
 
-@group(1) @binding(0)
-var<uniform> config: ConfigUniform;
+// Config is now hardcoded as constants
 
 struct VertexInput {
     @location(0) position: vec3<f32>,
@@ -43,8 +36,8 @@ fn vs_main(vertex: VertexInput) -> VertexOutput {
     // Transform to clip space
     let clip_pos = camera.view_proj * world_position;
     
-    // Get point size from config uniform (now in the x component of the point_size_and_padding vec4)
-    let point_size = config.point_size_and_padding.x;
+    // Use size from vertex attributes
+    let point_size = vertex.size;
     
     // Use dynamic aspect ratio from camera uniform
     let dynamic_aspect_ratio = camera.aspect_ratio.x;

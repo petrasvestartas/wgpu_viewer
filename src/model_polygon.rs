@@ -5,9 +5,11 @@
 //! of polygon vertices with position and color attributes.
 
 use wgpu::util::DeviceExt;
-use cgmath::*;
+// Only import what we need from cgmath
+// No cgmath imports needed in this module
 
 // Configuration constants
+#[allow(dead_code)]
 pub const POLYGON_COLOR: [f32; 3] = [0.5, 0.5, 0.5];  // Default gray color
 
 // Polygon vertex definition
@@ -43,6 +45,7 @@ impl PolygonVertex {
 }
 
 pub struct PolygonModel {
+    #[allow(dead_code)]
     pub name: String,
     pub vertex_buffer: wgpu::Buffer,
     pub index_buffer: wgpu::Buffer,
@@ -77,6 +80,7 @@ impl PolygonModel {
     }
     
     // Convenience method to create a polygon from a simple list of positions and a color
+    #[allow(dead_code)]
     pub fn from_positions(
         device: &wgpu::Device,
         name: &str,
@@ -102,6 +106,7 @@ impl PolygonModel {
     }
     
     // Create a model for multiple polygons
+    #[allow(dead_code)]
     pub fn from_polygon_list(
         device: &wgpu::Device,
         name: &str,

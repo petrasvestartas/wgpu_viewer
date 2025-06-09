@@ -15,7 +15,7 @@ use cgmath::*;
 
 // Configuration constants
 pub const PIPE_RADIUS: f32 = 0.05;  // Default pipe radius/thickness
-pub const PIPE_COLOR: [f32; 3] = [1.0, 0.0, 0.0];  // Bright red for debugging
+pub const PIPE_COLOR: [f32; 3] = [0.0, 0.0, 0.0];  // Bright red for debugging
 pub const PIPE_RESOLUTION: u32 = 12;  // Number of sides for cylinder approximation
 
 // Pipe segment definition
@@ -60,6 +60,7 @@ impl PipeVertex {
 }
 
 pub struct PipeModel {
+    #[allow(dead_code)]
     pub name: String,
     pub vertex_buffer: wgpu::Buffer,
     pub index_buffer: wgpu::Buffer,

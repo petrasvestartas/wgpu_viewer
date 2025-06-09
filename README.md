@@ -47,6 +47,8 @@ wasm-pack build --target web
 # Serve and close server with Ctrl+C
 python3 -m http.server 8002
 # Open http://localhost:8002
+ps aux | grep "[p]ython3 -m http.server"
+fuser -k 8002/tcp
 ```
 
 ## Controls
@@ -55,3 +57,10 @@ python3 -m http.server 8002
 - **Space/Shift**: Move camera up/down
 - **Mouse drag**: Rotate camera
 - **Mouse wheel**: Zoom in/out
+
+## TODO
+
+- [ ] Cemara arcball
+- [ ] Create geometries from code rather than lib.rs file
+- [ ] Load geometry from JSon file 
+

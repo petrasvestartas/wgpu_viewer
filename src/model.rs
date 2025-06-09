@@ -18,4 +18,4 @@ pub mod model_line;
 
 pub use model_mesh::{ModelVertex, Material, Mesh, Model, DrawModel, DrawLight, Vertex};
 pub use model_point::{PointModel};
-pub use model_line::{LineVertex, LineModel, DrawLines};
+pub use model_line::{LineVertex, LineModel};

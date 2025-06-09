@@ -13,12 +13,14 @@ use wgpu::util::DeviceExt;
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
+#[allow(dead_code)]
 pub struct LineVertex {
     pub position: [f32; 3],
     pub color: [f32; 3],
 }
 
 impl LineVertex {
+    #[allow(dead_code)]
     pub fn desc() -> wgpu::VertexBufferLayout<'static> {
         use std::mem;
         wgpu::VertexBufferLayout {
@@ -47,6 +49,7 @@ pub struct LineModel {
 }
 
 impl LineModel {
+    #[allow(dead_code)]
     pub fn new(device: &wgpu::Device, name: &str, vertices: &[LineVertex]) -> Self {
         let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some(&format!("{} Vertex Buffer", name)),
@@ -62,6 +65,7 @@ impl LineModel {
     }
 }
 
+#[allow(dead_code)]
 pub trait DrawLines<'a> {
     fn draw_lines(
         &mut self,

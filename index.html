@@ -18,8 +18,21 @@
             setTimeout(() => {
                 const canvas = document.querySelector('canvas');
                 if (canvas) {
-                    canvas.width = Math.min(1280, window.innerWidth - 30);
-                    canvas.height = Math.min(720, window.innerHeight - 30);
+                    // Calculate dimensions based on window size
+                    const maxWidth = Math.min(1980, window.innerWidth - 30);
+                    const maxHeight = Math.min(1200, window.innerHeight - 30);
+                    
+                    // Set canvas drawing surface dimensions
+                    canvas.width = maxWidth;
+                    canvas.height = maxHeight;
+                    
+                    // Set CSS variables for the canvas styling
+                    document.documentElement.style.setProperty('--canvas-width', maxWidth + 'px');
+                    document.documentElement.style.setProperty('--canvas-height', maxHeight + 'px');
+                    document.documentElement.style.setProperty('--canvas-max-width', maxWidth + 'px');
+                    document.documentElement.style.setProperty('--canvas-min-width', maxHeight + 'px');
+                    
+                    console.log(`Canvas size set to ${maxWidth}x${maxHeight}`);
                 }
             }, 100);
         });
@@ -35,12 +48,19 @@
             min-height: 100vh;
             box-sizing: border-box;
         }
+        :root {
+            --canvas-width: 1280px;
+            --canvas-height: 720px;
+            --canvas-max-width: 1800px;
+            --canvas-min-width: 1280px;
+        }
         canvas {
             background-color: black;
             box-shadow: 0 0 20px rgba(0,0,0,0.5);
-            width: 100%;
-            max-width: 1280px;
-            height: auto;
+            width: var(--canvas-width);
+            height: var(--canvas-height);
+            max-width: var(--canvas-max-width);
+            min-width: var(--canvas-min-width);
         }
         #wasm-example {
             width: 100%;

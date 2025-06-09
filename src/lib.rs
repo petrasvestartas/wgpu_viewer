@@ -945,132 +945,7 @@ impl<'a> State<'a> {
         );
     }
     
-    /// Helper method to extract line vertices from a buffer
-    fn extract_line_vertices_from_buffer(
-        device: &wgpu::Device, 
-        line_model: &model::LineModel
-    ) -> Vec<model::LineVertex> {
-        println!("Getting original line vertices directly");
-        
-        // Create a new empty vec for storing our line vertices
-        let mut vertices = Vec::new();
-        
-        // Instead of trying to recreate the vertices, we'll create a temporary solution
-        // that guarantees we create pipe lines for ALL line positions
-        // We'll create only a subset for now (100 vertical lines)
-        
-        // Define the WGPU instances configuration from original code
-        const NUM_INSTANCES_PER_ROW: u32 = 10;
-        const INSTANCE_DISPLACEMENT: cgmath::Vector3<f32> = cgmath::Vector3::new(
-            NUM_INSTANCES_PER_ROW as f32 * 0.5, 
-            0.0, 
-            NUM_INSTANCES_PER_ROW as f32 * 0.5
-        );
-        
-        let mut instances = Vec::new();
-
-        // Generate the same instance data as the original code
-        for z in 0..NUM_INSTANCES_PER_ROW {
-            for x in 0..NUM_INSTANCES_PER_ROW {
-                let position = cgmath::Vector3 {
-                    x: x as f32 * 3.0,
-                    y: 0.0,
-                    z: z as f32 * 3.0,
-                } - INSTANCE_DISPLACEMENT;
-
-                // Create instance with position and rotation from original code
-                let rotation = if position.is_zero() {
-                    cgmath::Quaternion::from_axis_angle(cgmath::Vector3::unit_z(), cgmath::Deg(0.0))
-                } else {
-                    cgmath::Quaternion::from_axis_angle(position.normalize(), cgmath::Deg(45.0))
-                };
-
-                instances.push(Instance {
-                    position,
-                    rotation,
-                });
-            }
-        }
-        
-        println!("DEBUG: Creating vertical lines for {} instances", instances.len());
-        
-        // Create vertical lines at each mesh box position with the same rotation as the boxes
-        for instance in &instances {
-            let pos = instance.position;
-            let rotation = instance.rotation;
-            
-            // Convert the quaternion rotation to a 4x4 matrix
-            let rotation_matrix = cgmath::Matrix4::from(rotation);
-            
-            // Define the start and end points in local space
-            let start_local = cgmath::Point3::new(0.0, -0.5, 0.0);
-            let end_local = cgmath::Point3::new(0.0, 1.5, 0.0);
-            
-            // Transform the points using the rotation matrix and then translate
-            let start_rotated = rotation_matrix * cgmath::Vector4::new(start_local.x, start_local.y, start_local.z, 1.0);
-            let end_rotated = rotation_matrix * cgmath::Vector4::new(end_local.x, end_local.y, end_local.z, 1.0);
-            
-            // Get the final world positions
-            let start_world = cgmath::Point3::new(
-                start_rotated.x + pos.x,
-                start_rotated.y + pos.y,
-                start_rotated.z + pos.z
-            );
-            
-            let end_world = cgmath::Point3::new(
-                end_rotated.x + pos.x,
-                end_rotated.y + pos.y,
-                end_rotated.z + pos.z
-            );
-            
-            // Add the transformed line vertices
-            vertices.push(model::LineVertex {
-                position: [start_world.x, start_world.y, start_world.z],
-                color: [1.0, 0.0, 0.0], // Red for high visibility
-            });
-            
-            vertices.push(model::LineVertex {
-                position: [end_world.x, end_world.y, end_world.z],
-                color: [1.0, 0.0, 0.0], 
-            });
-        }
-        
-        // Now add coordinate axes to the line vertices
-        let axis_length = 5.0;
-        
-        // X axis (red)
-        vertices.push(model::LineVertex {
-            position: [0.0, 0.0, 0.0],
-            color: [1.0, 0.0, 0.0],
-        });
-        vertices.push(model::LineVertex {
-            position: [axis_length, 0.0, 0.0],
-            color: [1.0, 0.0, 0.0],
-        });
-        
-        // Y axis (green)
-        vertices.push(model::LineVertex {
-            position: [0.0, 0.0, 0.0],
-            color: [0.0, 1.0, 0.0],
-        });
-        vertices.push(model::LineVertex {
-            position: [0.0, axis_length, 0.0],
-            color: [0.0, 1.0, 0.0],
-        });
-        
-        // Z axis (blue)
-        vertices.push(model::LineVertex {
-            position: [0.0, 0.0, 0.0],
-            color: [0.0, 0.0, 1.0],
-        });
-        vertices.push(model::LineVertex {
-            position: [0.0, 0.0, axis_length],
-            color: [0.0, 0.0, 1.0],
-        });
-        
-        println!("Created {} line vertices", vertices.len());
-        vertices
-    }
+    // The extract_line_vertices_from_buffer function has been removed as it was unused
     
     /// Create a grid of polygons matching other geometries
     fn create_sample_polygon(&mut self) {
@@ -1222,7 +1097,7 @@ impl<'a> State<'a> {
             let mut line_segments = Vec::new();
             
             // Extract vertices and create pipe segments that match line segments exactly
-            if let Some(line_model) = &self.line_model {
+            if let Some(_line_model) = &self.line_model {
                 println!("Creating pipe model from line model...");
                 
                 // Use the instances directly without an extra reference
@@ -1578,28 +1453,81 @@ pub async fn run() {
 
     let event_loop = EventLoop::new().unwrap();
     let title = env!("CARGO_PKG_NAME");
+    
     let window = winit::window::WindowBuilder::new()
         .with_title(title)
+        .with_inner_size(winit::dpi::PhysicalSize::new(1920, 1080))
         .build(&event_loop)
         .unwrap();
 
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        window.focus_window();
+    }
+
     #[cfg(target_arch = "wasm32")]
     {
-        // Winit prevents sizing with CSS, so we have to set
-        // the size manually when on web.
+        // For web, we want to use the full browser window size
         use winit::dpi::PhysicalSize;
-        let _ = window.request_inner_size(PhysicalSize::new(450, 400));
-
+        
+        // Get the browser window dimensions
+        let browser_window = web_sys::window().expect("Unable to get browser window");
+        let width = browser_window.inner_width().unwrap().as_f64().unwrap() as u32;
+        let height = browser_window.inner_height().unwrap().as_f64().unwrap() as u32;
+        
+        // Set canvas to browser window size
+        let _ = window.request_inner_size(PhysicalSize::new(width, height));
+        
         use winit::platform::web::WindowExtWebSys;
         web_sys::window()
             .and_then(|win| win.document())
             .and_then(|doc| {
-                let dst = doc.get_element_by_id("wasm-example")?;
+                // Add CSS to make canvas fullscreen
+                let style = doc.create_element("style").unwrap();
+                style.set_text_content(Some("
+                    html, body {
+                        margin: 0 !important;
+                        padding: 0 !important;
+                        width: 100% !important;
+                        height: 100% !important;
+                        overflow: hidden !important;
+                    }
+                    canvas {
+                        display: block !important;
+                        width: 100% !important;
+                        height: 100% !important;
+                    }
+                "));
+                
+                // Append style to document
+                doc.body().unwrap().append_child(&style).ok();
+                
+                // Append canvas to document body or container
                 let canvas = web_sys::Element::from(window.canvas()?);
+                canvas.set_id("wgpu-canvas");
+                
+                // Try to find the target element, fall back to body if not found
+                let dst = doc.get_element_by_id("wasm-example")
+                    .unwrap_or_else(|| doc.body().unwrap().into());
+                
                 dst.append_child(&canvas).ok()?;
                 Some(())
             })
             .expect("Couldn't append canvas to document body.");
+            
+        // In WASM, we don't need to manually request a redraw on resize
+        // as the browser will handle this automatically
+        let resize_closure = Closure::wrap(Box::new(move |_: web_sys::Event| {
+            // We don't need to do anything here, canvas CSS handles resizing
+        }) as Box<dyn FnMut(_)>);
+        
+        web_sys::window()
+            .unwrap()
+            .add_event_listener_with_callback("resize", resize_closure.as_ref().unchecked_ref())
+            .expect("Failed to add resize event listener");
+            
+        // Prevent closure from being garbage collected
+        resize_closure.forget();
     }
 
     let mut state = State::new(&window).await; // NEW!

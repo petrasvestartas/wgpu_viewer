@@ -60,6 +60,15 @@ impl ModelVertex {
     }
 }
 
+/// A common trait for all vertex types that can be used with WGPU rendering.
+/// 
+/// This trait provides a single method `desc()` that returns the vertex buffer layout
+/// required by the GPU pipeline to interpret the vertex data correctly.
+pub trait Vertex {
+    /// Returns the buffer layout description for this vertex type
+    fn desc() -> wgpu::VertexBufferLayout<'static>;
+}
+
 pub struct Material {
     pub _name: String, // Using underscore to indicate unused field
     pub _diffuse_texture: texture::Texture, // Using underscore to indicate unused field
@@ -120,6 +129,7 @@ pub struct Model {
     pub materials: Vec<Material>,
 }
 
+#[allow(dead_code)]
 pub trait DrawModel<'a> {
     fn draw_mesh(
         &mut self,
@@ -213,6 +223,7 @@ where
 
 }
 
+#[allow(dead_code)]
 pub trait DrawLight<'a> {
     fn draw_light_mesh(
         &mut self,

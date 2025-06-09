@@ -16,11 +16,6 @@ pub mod model_point;
 #[path = "model_line.rs"]
 pub mod model_line;
 
-pub use model_mesh::{ModelVertex, Material, Mesh, Model, DrawModel, DrawLight};
+pub use model_mesh::{ModelVertex, Material, Mesh, Model, DrawModel, DrawLight, Vertex};
 pub use model_point::{PointVertex, PointModel, DrawPoints};
 pub use model_line::{LineVertex, LineModel, DrawLines};
-
-// Keep the Vertex trait here for backward compatibility
-pub trait Vertex {
-    fn desc() -> wgpu::VertexBufferLayout<'static>;
-}

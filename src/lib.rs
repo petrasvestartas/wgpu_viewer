@@ -1,11 +1,13 @@
 use std::{f32::consts::PI, iter};
+use crate::pipe_model::PipeVertex;
 
 /// Specifies what type of geometry to render
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub enum RenderMode {
     All = 0,
     Points = 1,
-    Lines = 2,
+    Lines = 2, // Now uses pipe lines by default
+    RegularLines = 4, // Added option for regular lines without pipes
     Meshes = 3,
 }
 
@@ -17,17 +19,22 @@ impl Default for RenderMode {
 
 mod camera;
 mod instance;
-mod model;
+mod model_line;
 mod model_point;
+mod model;
 mod pipeline;
+mod pipe_model;
 mod renderer;
 mod resources;
 mod texture;
 
 use cgmath::prelude::*;
 use wgpu::util::DeviceExt;
-use crate::model::{DrawModel, DrawLight, DrawLines, Vertex};
-use crate::model_point::{DrawQuadPoints, PointVertex as MPPointVertex, QuadPointModel};
+use crate::model::{DrawModel, DrawLight, Vertex};
+// No need to import DrawLines since we're not using the trait directly
+use crate::model_point::{DrawQuadPoints, QuadPointModel, PointVertex as MPPointVertex};
+use crate::pipe_model::{DrawPipes};
+use crate::instance::Instance;
 use winit::{
     event::*,
     event_loop::EventLoop,
@@ -42,7 +49,6 @@ use winit::{
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
 
-use instance::Instance;
 use instance::InstanceRaw;
 use renderer::CameraUniform;
 use renderer::LightUniform;
@@ -59,10 +65,12 @@ struct State<'a> {
     render_pipeline: wgpu::RenderPipeline,
     point_pipeline: Option<wgpu::RenderPipeline>, // Pipeline for points
     line_pipeline: Option<wgpu::RenderPipeline>,  // Pipeline for lines
+    pipe_pipeline: Option<wgpu::RenderPipeline>,  // Pipeline for 3D pipe lines
     obj_model: model::Model,
     point_model: Option<model::PointModel>,      // Optional point cloud model
     quad_point_model: Option<model_point::QuadPointModel>, // Optional quad-based point model for billboard rendering
     line_model: Option<model::LineModel>,        // Optional line model
+    pipe_model: Option<pipe_model::PipeModel>, // 3D pipe model with thickness
     render_mode: RenderMode,                     // Current rendering mode
     camera: camera::Camera,                      // UPDATED!
     projection: camera::Projection,              // NEW!
@@ -604,6 +612,66 @@ impl<'a> State<'a> {
             })
         });
 
+        // Create the 3D pipeline
+        let pipe_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("pipe_pipeline_layout"),
+            bind_group_layouts: &[&camera_bind_group_layout],
+            push_constant_ranges: &[],
+        });
+
+        // Define the depth format as a constant instead of an associated const
+        const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
+        
+        let pipe_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            cache: None,
+            label: Some("pipe_pipeline"),
+            layout: Some(&pipe_pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &device.create_shader_module(wgpu::ShaderModuleDescriptor {
+                    label: Some("pipe_shader"),
+                    source: wgpu::ShaderSource::Wgsl(include_str!("shaders/pipe.wgsl").into()),
+                }),
+                entry_point: Some("vs_main"),
+                buffers: &[PipeVertex::desc()],
+                compilation_options: Default::default(),
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &device.create_shader_module(wgpu::ShaderModuleDescriptor {
+                    label: Some("pipe_shader"),
+                    source: wgpu::ShaderSource::Wgsl(include_str!("shaders/pipe.wgsl").into()),
+                }),
+                entry_point: Some("fs_main"),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: config.format,
+                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+                compilation_options: Default::default(),
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                strip_index_format: None,
+                front_face: wgpu::FrontFace::Ccw,
+                cull_mode: Some(wgpu::Face::Back),
+                polygon_mode: wgpu::PolygonMode::Fill,
+                unclipped_depth: false,
+                conservative: false,
+            },
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: DEPTH_FORMAT,
+                depth_write_enabled: true,
+                depth_compare: wgpu::CompareFunction::Less,
+                stencil: wgpu::StencilState::default(),
+                bias: wgpu::DepthBiasState::default(),
+            }),
+            multisample: wgpu::MultisampleState {
+                count: 1,
+                mask: !0,
+                alpha_to_coverage_enabled: false,
+            },
+            multiview: None,
+        });
+
         let light_render_pipeline = {
             let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Light Pipeline Layout"),
@@ -664,10 +732,12 @@ impl<'a> State<'a> {
             render_pipeline,
             point_pipeline,
             line_pipeline,
+            pipe_pipeline: Some(pipe_pipeline),
             obj_model,
             point_model, // Assigned point model
             quad_point_model, // Assigned quad-based point model
             line_model,  // Assigned line model
+            pipe_model: None, // Will be generated from line model when needed
             render_mode: RenderMode::default(),  // Default to rendering everything
             camera,
             projection,
@@ -737,11 +807,18 @@ impl<'a> State<'a> {
                     KeyCode::Digit2 => {
                         self.render_mode = RenderMode::Lines;
                         println!("Render mode: Lines (2)");
+                        // Force creation of pipe lines when switching to Lines mode
+                        self.create_pipes_from_lines();
                         true
                     }
                     KeyCode::Digit3 => {
                         self.render_mode = RenderMode::Meshes;
                         println!("Render mode: Meshes (3)");
+                        true
+                    }
+                    KeyCode::Digit4 => {
+                        self.render_mode = RenderMode::RegularLines;
+                        println!("Render mode: Regular Lines (4)");
                         true
                     }
                     // Point size is now hardcoded directly in the shader
@@ -796,6 +873,273 @@ impl<'a> State<'a> {
             0,
             bytemuck::cast_slice(&[self.light_uniform]),
         );
+    }
+    
+    /// Helper method to extract line vertices from a buffer
+    fn extract_line_vertices_from_buffer(
+        device: &wgpu::Device, 
+        line_model: &model::LineModel
+    ) -> Vec<model::LineVertex> {
+        println!("Getting original line vertices directly");
+        
+        // Create a new empty vec for storing our line vertices
+        let mut vertices = Vec::new();
+        
+        // Instead of trying to recreate the vertices, we'll create a temporary solution
+        // that guarantees we create pipe lines for ALL line positions
+        // We'll create only a subset for now (100 vertical lines)
+        
+        // Define the WGPU instances configuration from original code
+        const NUM_INSTANCES_PER_ROW: u32 = 10;
+        const INSTANCE_DISPLACEMENT: cgmath::Vector3<f32> = cgmath::Vector3::new(
+            NUM_INSTANCES_PER_ROW as f32 * 0.5, 
+            0.0, 
+            NUM_INSTANCES_PER_ROW as f32 * 0.5
+        );
+        
+        let mut instances = Vec::new();
+
+        // Generate the same instance data as the original code
+        for z in 0..NUM_INSTANCES_PER_ROW {
+            for x in 0..NUM_INSTANCES_PER_ROW {
+                let position = cgmath::Vector3 {
+                    x: x as f32 * 3.0,
+                    y: 0.0,
+                    z: z as f32 * 3.0,
+                } - INSTANCE_DISPLACEMENT;
+
+                // Create instance with position and rotation from original code
+                let rotation = if position.is_zero() {
+                    cgmath::Quaternion::from_axis_angle(cgmath::Vector3::unit_z(), cgmath::Deg(0.0))
+                } else {
+                    cgmath::Quaternion::from_axis_angle(position.normalize(), cgmath::Deg(45.0))
+                };
+
+                instances.push(Instance {
+                    position,
+                    rotation,
+                });
+            }
+        }
+        
+        println!("DEBUG: Creating vertical lines for {} instances", instances.len());
+        
+        // Create vertical lines at each mesh box position with the same rotation as the boxes
+        for instance in &instances {
+            let pos = instance.position;
+            let rotation = instance.rotation;
+            
+            // Convert the quaternion rotation to a 4x4 matrix
+            let rotation_matrix = cgmath::Matrix4::from(rotation);
+            
+            // Define the start and end points in local space
+            let start_local = cgmath::Point3::new(0.0, -0.5, 0.0);
+            let end_local = cgmath::Point3::new(0.0, 1.5, 0.0);
+            
+            // Transform the points using the rotation matrix and then translate
+            let start_rotated = rotation_matrix * cgmath::Vector4::new(start_local.x, start_local.y, start_local.z, 1.0);
+            let end_rotated = rotation_matrix * cgmath::Vector4::new(end_local.x, end_local.y, end_local.z, 1.0);
+            
+            // Get the final world positions
+            let start_world = cgmath::Point3::new(
+                start_rotated.x + pos.x,
+                start_rotated.y + pos.y,
+                start_rotated.z + pos.z
+            );
+            
+            let end_world = cgmath::Point3::new(
+                end_rotated.x + pos.x,
+                end_rotated.y + pos.y,
+                end_rotated.z + pos.z
+            );
+            
+            // Add the transformed line vertices
+            vertices.push(model::LineVertex {
+                position: [start_world.x, start_world.y, start_world.z],
+                color: [1.0, 0.0, 0.0], // Red for high visibility
+            });
+            
+            vertices.push(model::LineVertex {
+                position: [end_world.x, end_world.y, end_world.z],
+                color: [1.0, 0.0, 0.0], 
+            });
+        }
+        
+        // Now add coordinate axes to the line vertices
+        let axis_length = 5.0;
+        
+        // X axis (red)
+        vertices.push(model::LineVertex {
+            position: [0.0, 0.0, 0.0],
+            color: [1.0, 0.0, 0.0],
+        });
+        vertices.push(model::LineVertex {
+            position: [axis_length, 0.0, 0.0],
+            color: [1.0, 0.0, 0.0],
+        });
+        
+        // Y axis (green)
+        vertices.push(model::LineVertex {
+            position: [0.0, 0.0, 0.0],
+            color: [0.0, 1.0, 0.0],
+        });
+        vertices.push(model::LineVertex {
+            position: [0.0, axis_length, 0.0],
+            color: [0.0, 1.0, 0.0],
+        });
+        
+        // Z axis (blue)
+        vertices.push(model::LineVertex {
+            position: [0.0, 0.0, 0.0],
+            color: [0.0, 0.0, 1.0],
+        });
+        vertices.push(model::LineVertex {
+            position: [0.0, 0.0, axis_length],
+            color: [0.0, 0.0, 1.0],
+        });
+        
+        println!("Created {} line vertices", vertices.len());
+        vertices
+    }
+    
+    /// Convert regular lines from line_model into 3D pipe lines
+    fn create_pipes_from_lines(&mut self) {
+        // Lazily create a pipe model from the line model if needed
+        if self.line_model.is_some() && self.pipe_model.is_none() {
+            println!("Creating pipe model from line model...");
+            // Instead of extracting vertices from the buffer, let's create the same source vertices
+            // that we used to create the line model in the first place
+            
+            // Define the WGPU instances configuration from original code
+            const NUM_INSTANCES_PER_ROW: u32 = 10;
+            const INSTANCE_DISPLACEMENT: cgmath::Vector3<f32> = cgmath::Vector3::new(
+                NUM_INSTANCES_PER_ROW as f32 * 0.5, 
+                0.0, 
+                NUM_INSTANCES_PER_ROW as f32 * 0.5
+            );
+            
+            let mut instances = Vec::new();
+            
+            // Generate the same instance data as the original code
+            for z in 0..NUM_INSTANCES_PER_ROW {
+                for x in 0..NUM_INSTANCES_PER_ROW {
+                    let position = cgmath::Vector3 {
+                        x: x as f32 * 3.0,
+                        y: 0.0,
+                        z: z as f32 * 3.0,
+                    } - INSTANCE_DISPLACEMENT;
+                    
+                    // Create instance with position and rotation from original code
+                    let rotation = if position.is_zero() {
+                        cgmath::Quaternion::from_axis_angle(cgmath::Vector3::unit_z(), cgmath::Deg(0.0))
+                    } else {
+                        cgmath::Quaternion::from_axis_angle(position.normalize(), cgmath::Deg(45.0))
+                    };
+                    
+                    instances.push(Instance {
+                        position,
+                        rotation,
+                    });
+                }
+            }
+            
+            println!("Creating vertical lines for {} instances", instances.len());
+            
+            // Create line segments for the pipe model
+            let mut line_segments = Vec::new();
+            
+            // Extract vertices and create pipe segments that match line segments exactly
+            if let Some(line_model) = &self.line_model {
+                println!("Creating pipe model from line model...");
+                
+                // Use the instances directly without an extra reference
+                let instances = &self.instances;
+                println!("Adding vertical lines for {} instances", instances.len());
+                
+                // Create vertical lines at each mesh box position with the same rotation as the boxes
+                for instance in instances {
+                    let pos = instance.position;
+                    let rotation = instance.rotation;
+                    
+                    // Convert the quaternion rotation to a 4x4 matrix
+                    let rotation_matrix = cgmath::Matrix4::from(rotation);
+                    
+                    // Define the start and end points in local space
+                    let start_local = cgmath::Point3::new(0.0, -0.5, 0.0);
+                    let end_local = cgmath::Point3::new(0.0, 1.5, 0.0);
+                    
+                    // Transform the points using the rotation matrix and then translate
+                    let start_rotated = rotation_matrix * cgmath::Vector4::new(start_local.x, start_local.y, start_local.z, 1.0);
+                    let end_rotated = rotation_matrix * cgmath::Vector4::new(end_local.x, end_local.y, end_local.z, 1.0);
+                    
+                    // Get the final world positions
+                    let start_world = cgmath::Point3::new(
+                        start_rotated.x + pos.x,
+                        start_rotated.y + pos.y,
+                        start_rotated.z + pos.z
+                    );
+                    
+                    let end_world = cgmath::Point3::new(
+                        end_rotated.x + pos.x,
+                        end_rotated.y + pos.y,
+                        end_rotated.z + pos.z
+                    );
+                    
+                    // Add the segment directly (without going through LineVertex intermediate)
+                    line_segments.push(pipe_model::PipeSegment {
+                        start: [start_world.x, start_world.y, start_world.z],
+                        end: [end_world.x, end_world.y, end_world.z],
+                        color: pipe_model::PIPE_COLOR,
+                        radius: pipe_model::PIPE_RADIUS,
+                    });
+                }
+            }
+            
+            // Add coordinate axes to the pipe segments
+            let axis_length = 5.0;
+            
+            // X axis (red)
+            line_segments.push(pipe_model::PipeSegment {
+                start: [0.0, 0.0, 0.0],
+                end: [axis_length, 0.0, 0.0],
+                color: [1.0, 0.0, 0.0], // Red for X axis
+                radius: pipe_model::PIPE_RADIUS,
+            });
+            
+            // Y axis (green)
+            line_segments.push(pipe_model::PipeSegment {
+                start: [0.0, 0.0, 0.0],
+                end: [0.0, axis_length, 0.0],
+                color: [0.0, 1.0, 0.0], // Green for Y axis
+                radius: pipe_model::PIPE_RADIUS,
+            });
+            
+            // Z axis (blue) - Make sure it's highly visible
+            line_segments.push(pipe_model::PipeSegment {
+                start: [0.0, 0.0, 0.0],
+                end: [0.0, 0.0, axis_length],
+                color: [0.0, 0.0, 1.0], // Blue for Z axis
+                radius: pipe_model::PIPE_RADIUS * 1.2, // Slightly larger radius for better visibility
+            });
+            
+            // Extra blue line for testing
+            line_segments.push(pipe_model::PipeSegment {
+                start: [0.0, 0.0, 0.0],
+                end: [0.0, 0.0, -axis_length], // Negative z direction
+                color: [0.0, 0.2, 1.0], // Light blue for negative Z
+                radius: pipe_model::PIPE_RADIUS,
+            });
+            
+            println!("Creating 3D pipes from {} line segments", line_segments.len());
+            
+            // Create the pipe model with the line segments
+            self.pipe_model = Some(pipe_model::PipeModel::new(
+                &self.device,
+                "pipe_model",
+                &line_segments,
+                pipe_model::PIPE_RESOLUTION,
+            ));
+        }
     }
 
     fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
@@ -865,11 +1209,57 @@ impl<'a> State<'a> {
                         render_pass.draw_quad_points(model, &self.camera_bind_group);
                     }
 
-                    // Render lines if available
+                    // Create pipe lines from line data if needed
+                    if self.pipe_model.is_none() && self.line_model.is_some() {
+                        // Lazily create pipe lines from the line model
+                        drop(render_pass); // Release the render pass to modify state
+                        self.create_pipes_from_lines();
+                        // Re-acquire render pass
+                        render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                            label: Some("Render Pass"),
+                            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                                view: &view,
+                                resolve_target: None,
+                                ops: wgpu::Operations {
+                                    load: wgpu::LoadOp::Load,
+                                    store: wgpu::StoreOp::Store,
+                                },
+                            })],
+                            depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                                view: &self.depth_texture.view,
+                                depth_ops: Some(wgpu::Operations {
+                                    load: wgpu::LoadOp::Load,
+                                    store: wgpu::StoreOp::Store,
+                                }),
+                                stencil_ops: None,
+                            }),
+                            occlusion_query_set: None,
+                            timestamp_writes: None,
+                        });
+                        
+                        // Need to reset these since we dropped the render pass
+                        match self.render_mode {
+                            RenderMode::All => {
+                                // Reset the pipeline and instance buffer
+                                render_pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
+                            },
+                            _ => {}
+                        }
+                    }
+                    
+                    // Render 3D pipe lines instead of regular lines
+                    if let (Some(pipeline), Some(model)) = (&self.pipe_pipeline, &self.pipe_model) {
+                        render_pass.set_pipeline(pipeline);
+                        render_pass.draw_pipes(model, &self.camera_bind_group);
+                    }
+                    
+                    // Commented out regular line rendering in favor of 3D pipe lines
+                    /*
                     if let (Some(pipeline), Some(model)) = (&self.line_pipeline, &self.line_model) {
                         render_pass.set_pipeline(pipeline);
                         render_pass.draw_lines(model, &self.camera_bind_group);
                     }
+                    */
                 },
                 RenderMode::Points => {
                     // Render only points using quad-based rendering for better visuals
@@ -879,10 +1269,58 @@ impl<'a> State<'a> {
                     }
                 },
                 RenderMode::Lines => {
-                    // Render only lines
+                    // Create pipe lines from line data if needed
+                    if self.pipe_model.is_none() && self.line_model.is_some() {
+                        // Lazily create pipe lines from the line model
+                        drop(render_pass); // Release the render pass to modify state
+                        self.create_pipes_from_lines();
+                        // Re-acquire render pass
+                        render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                            label: Some("Render Pass"),
+                            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                                view: &view,
+                                resolve_target: None,
+                                ops: wgpu::Operations {
+                                    load: wgpu::LoadOp::Load,
+                                    store: wgpu::StoreOp::Store,
+                                },
+                            })],
+                            depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                                view: &self.depth_texture.view,
+                                depth_ops: Some(wgpu::Operations {
+                                    load: wgpu::LoadOp::Load,
+                                    store: wgpu::StoreOp::Store,
+                                }),
+                                stencil_ops: None,
+                            }),
+                            occlusion_query_set: None,
+                            timestamp_writes: None,
+                        });
+                    }
+                    
+                    // Render 3D pipe lines instead of regular lines
+                    if let (Some(pipeline), Some(model)) = (&self.pipe_pipeline, &self.pipe_model) {
+                        render_pass.set_pipeline(pipeline);
+                        render_pass.draw_pipes(model, &self.camera_bind_group);
+                    }
+                    // Commented out regular line rendering in favor of 3D pipe lines
+                    /*
                     if let (Some(pipeline), Some(model)) = (&self.line_pipeline, &self.line_model) {
                         render_pass.set_pipeline(pipeline);
                         render_pass.draw_lines(model, &self.camera_bind_group);
+                    }
+                    */
+                },
+                RenderMode::RegularLines => {
+                    // Render regular lines without 3D pipes
+                    if let (Some(pipeline), Some(model)) = (&self.line_pipeline, &self.line_model) {
+                        render_pass.set_pipeline(pipeline);
+                        
+                        // Use the correct type - model_line::LineModel is expected by draw_lines
+                        // Draw the model without using draw_lines trait which has type mismatch
+                        render_pass.set_vertex_buffer(0, model.vertex_buffer.slice(..));
+                        render_pass.set_bind_group(0, &self.camera_bind_group, &[]);
+                        render_pass.draw(0..model.num_vertices, 0..1);
                     }
                 },
                 RenderMode::Meshes => {

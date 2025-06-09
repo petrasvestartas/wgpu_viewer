@@ -204,8 +204,10 @@ impl<'a> State<'a> {
                 label: Some("texture_bind_group_layout"),
             });
 
-        // UPDATED!
-        let camera = camera::Camera::new((0.0, 5.0, 10.0), cgmath::Deg(-90.0), cgmath::Deg(-20.0));
+        // Initialize arcball camera
+        let camera_target = cgmath::Point3::new(0.0, 0.0, 0.0); // Target the origin
+        let camera_position = cgmath::Point3::new(10.0, 5.0, 10.0); // Position offset from origin
+        let camera = camera::Camera::new(camera_position, camera_target);
         let projection =
             camera::Projection::new(config.width, config.height, cgmath::Deg(45.0), 0.1, 100.0);
         let camera_controller = camera::CameraController::new(4.0, 0.4);
@@ -909,12 +911,20 @@ impl<'a> State<'a> {
                 true
             }
             WindowEvent::MouseInput {
-                button: MouseButton::Left,
+                button,
                 state,
                 ..
             } => {
-                self.mouse_pressed = *state == ElementState::Pressed;
-                true
+                // For arcball camera, pass all mouse buttons to the camera controller
+                if self.camera_controller.process_mouse_button(*state, *button) {
+                    return true;
+                }
+                // Still maintain the mouse_pressed state for other functionality
+                if *button == MouseButton::Left {
+                    self.mouse_pressed = *state == ElementState::Pressed;
+                    return true;
+                }
+                false
             }
             _ => false,
         }
@@ -1538,7 +1548,9 @@ pub async fn run() {
             Event::DeviceEvent {
                 event: DeviceEvent::MouseMotion{ delta, },
                 .. // We're not using device_id currently
-            } => if state.mouse_pressed {
+            } => {
+                // Let the camera controller handle mouse movements directly
+                // It will determine whether to rotate based on if is_rotating is true
                 state.camera_controller.process_mouse(delta.0, delta.1)
             }
             // UPDATED!

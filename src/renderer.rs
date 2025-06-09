@@ -8,6 +8,7 @@ use crate::{model, camera, texture, instance::Instance, RenderMode};
 pub struct CameraUniform {
     view_position: [f32; 4],
     view_proj: [[f32; 4]; 4],
+    aspect_ratio: [f32; 4], // Using vec4 for alignment (only first value used)
 }
 
 impl CameraUniform {
@@ -15,12 +16,17 @@ impl CameraUniform {
         Self {
             view_position: [0.0; 4],
             view_proj: cgmath::Matrix4::identity().into(),
+            aspect_ratio: [1.0, 0.0, 0.0, 0.0], // Default to 1.0 aspect ratio
         }
     }
 
     pub fn update_view_proj(&mut self, camera: &camera::Camera, projection: &camera::Projection) {
         self.view_position = camera.position.to_homogeneous().into();
-        self.view_proj = (projection.calc_matrix() * camera.calc_matrix()).into()
+        self.view_proj = (projection.calc_matrix() * camera.calc_matrix()).into();
+    }
+    
+    pub fn update_aspect_ratio(&mut self, width: f32, height: f32) {
+        self.aspect_ratio[0] = width / height;
     }
 }
 

@@ -16,8 +16,10 @@ impl Default for RenderMode {
 }
 
 mod camera;
+mod config;
 mod instance;
 mod model;
+mod model_point;
 mod pipeline;
 mod renderer;
 mod resources;
@@ -25,7 +27,8 @@ mod texture;
 
 use cgmath::prelude::*;
 use wgpu::util::DeviceExt;
-use crate::model::{DrawModel, DrawLight, DrawPoints, DrawLines, Vertex};
+use crate::model::{DrawModel, DrawLight, DrawLines, Vertex};
+use crate::model_point::{DrawQuadPoints, PointVertex as MPPointVertex, QuadPointModel};
 use winit::{
     event::*,
     event_loop::EventLoop,
@@ -47,6 +50,7 @@ use renderer::LightUniform;
 
 const NUM_INSTANCES_PER_ROW: u32 = 10;
 
+#[allow(dead_code)]
 struct State<'a> {
     window: &'a Window,
     surface: wgpu::Surface<'a>,
@@ -58,12 +62,14 @@ struct State<'a> {
     line_pipeline: Option<wgpu::RenderPipeline>,  // Pipeline for lines
     obj_model: model::Model,
     point_model: Option<model::PointModel>,      // Optional point cloud model
+    quad_point_model: Option<model_point::QuadPointModel>, // Optional quad-based point model for billboard rendering
     line_model: Option<model::LineModel>,        // Optional line model
     render_mode: RenderMode,                     // Current rendering mode
     camera: camera::Camera,                      // UPDATED!
     projection: camera::Projection,              // NEW!
     camera_controller: camera::CameraController, // UPDATED!
     camera_uniform: CameraUniform,
+    config_uniform: config::ConfigUniform,       // Global configuration settings
     camera_buffer: wgpu::Buffer,
     camera_bind_group: wgpu::BindGroup,
     instances: Vec<Instance>,
@@ -195,6 +201,11 @@ impl<'a> State<'a> {
 
         let mut camera_uniform = CameraUniform::new();
         camera_uniform.update_view_proj(&camera, &projection);
+        
+        // Initialize with correct aspect ratio
+        let initial_width = config.width as f32;
+        let initial_height = config.height as f32;
+        camera_uniform.update_aspect_ratio(initial_width, initial_height);
 
         let camera_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Camera Buffer"),
@@ -262,6 +273,9 @@ impl<'a> State<'a> {
             }],
             label: Some("camera_bind_group"),
         });
+        
+        // Initialize the global configuration uniform
+        let config_uniform = config::ConfigUniform::new(&device);
 
         // Load standard mesh model
         let obj_model =
@@ -279,6 +293,20 @@ impl<'a> State<'a> {
             &device,
             "point_cloud",
             &point_vertices,
+        ));
+        
+        // Create a quad-based point model for better visual appearance
+        // Convert model::PointVertex to model_point::PointVertex
+        let mp_point_vertices: Vec<MPPointVertex> = point_vertices.iter().map(|v| MPPointVertex {
+            position: v.position,
+            color: v.color,
+            size: v.size,
+        }).collect();
+        
+        let quad_point_model = Some(QuadPointModel::new(
+            &device,
+            "quad_point_cloud",
+            &mp_point_vertices,
         ));
         
         // Create line vertices collection
@@ -441,7 +469,7 @@ impl<'a> State<'a> {
         // Create point pipeline with improved point size support
         let point_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("Point Pipeline Layout"),
-            bind_group_layouts: &[&camera_bind_group_layout],
+            bind_group_layouts: &[&camera_bind_group_layout, &config_uniform.bind_group_layout],
             push_constant_ranges: &[],
         });
         
@@ -463,7 +491,7 @@ impl<'a> State<'a> {
                 vertex: wgpu::VertexState {
                     module: &shader_module,
                     entry_point: Some("vs_main"),
-                    buffers: &[model::PointVertex::desc()],
+                    buffers: &[model_point::QuadPointVertex::desc()],
                     compilation_options: Default::default(),
                 },
                 fragment: Some(wgpu::FragmentState {
@@ -489,10 +517,10 @@ impl<'a> State<'a> {
                     })],
                 }),
                 primitive: wgpu::PrimitiveState {
-                    topology: wgpu::PrimitiveTopology::PointList,
+                    topology: wgpu::PrimitiveTopology::TriangleList,
                     strip_index_format: None,
                     front_face: wgpu::FrontFace::Ccw,
-                    cull_mode: None, // Don't cull points
+                    cull_mode: None, // Don't cull our billboard quads
                     // Setting this to anything other than Fill requires Features::NON_FILL_POLYGON_MODE
                     polygon_mode: wgpu::PolygonMode::Fill,
                     // Requires Features::DEPTH_CLIP_CONTROL
@@ -639,12 +667,14 @@ impl<'a> State<'a> {
             line_pipeline,
             obj_model,
             point_model, // Assigned point model
+            quad_point_model, // Assigned quad-based point model
             line_model,  // Assigned line model
             render_mode: RenderMode::default(),  // Default to rendering everything
             camera,
             projection,
             camera_controller,
             camera_uniform,
+            config_uniform,
             camera_buffer,
             camera_bind_group,
             instances,
@@ -668,6 +698,10 @@ impl<'a> State<'a> {
         // UPDATED!
         if new_size.width > 0 && new_size.height > 0 {
             self.projection.resize(new_size.width, new_size.height);
+            
+            // Update aspect ratio in camera uniform
+            self.camera_uniform.update_aspect_ratio(new_size.width as f32, new_size.height as f32);
+            
             self.size = new_size;
             self.config.width = new_size.width;
             self.config.height = new_size.height;
@@ -709,6 +743,29 @@ impl<'a> State<'a> {
                     KeyCode::Digit3 => {
                         self.render_mode = RenderMode::Meshes;
                         println!("Render mode: Meshes (3)");
+                        true
+                    }
+                    // Add '[' and ']' keys to decrease/increase point size
+                    KeyCode::BracketLeft => {
+                        // Decrease point size with a minimum of 0.001
+                        let current_size = config::get_point_size();
+                        let new_size = (current_size - 0.005).max(0.001);
+                        config::set_point_size(new_size);
+                        
+                        // Update the uniform buffer
+                        self.config_uniform.update(&self.queue);
+                        println!("Point size decreased to: {:.3}", new_size);
+                        true
+                    }
+                    KeyCode::BracketRight => {
+                        // Increase point size with a maximum of 0.1
+                        let current_size = config::get_point_size();
+                        let new_size = (current_size + 0.005).min(0.1);
+                        config::set_point_size(new_size);
+                        
+                        // Update the uniform buffer
+                        self.config_uniform.update(&self.queue);
+                        println!("Point size increased to: {:.3}", new_size);
                         true
                     }
                     _ => self.camera_controller.process_keyboard(*key, ElementState::Pressed),
@@ -825,10 +882,10 @@ impl<'a> State<'a> {
                         &self.light_bind_group,
                     );
 
-                    // Render points if available
-                    if let (Some(pipeline), Some(model)) = (&self.point_pipeline, &self.point_model) {
+                    // Render points if available - use the quad-based point model for better visuals
+                    if let (Some(pipeline), Some(model)) = (&self.point_pipeline, &self.quad_point_model) {
                         render_pass.set_pipeline(pipeline);
-                        render_pass.draw_points(model, &self.camera_bind_group);
+                        render_pass.draw_quad_points(model, &self.camera_bind_group, &self.config_uniform.bind_group);
                     }
 
                     // Render lines if available
@@ -838,10 +895,10 @@ impl<'a> State<'a> {
                     }
                 },
                 RenderMode::Points => {
-                    // Render only points
-                    if let (Some(pipeline), Some(model)) = (&self.point_pipeline, &self.point_model) {
+                    // Render only points using quad-based rendering for better visuals
+                    if let (Some(pipeline), Some(model)) = (&self.point_pipeline, &self.quad_point_model) {
                         render_pass.set_pipeline(pipeline);
-                        render_pass.draw_points(model, &self.camera_bind_group);
+                        render_pass.draw_quad_points(model, &self.camera_bind_group, &self.config_uniform.bind_group);
                     }
                 },
                 RenderMode::Lines => {

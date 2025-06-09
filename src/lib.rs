@@ -6,8 +6,9 @@ pub enum RenderMode {
     All = 0,
     Points = 1,
     Lines = 2, // Now uses pipe lines by default
-    RegularLines = 4, // Added option for regular lines without pipes
-    Meshes = 3,
+    RegularLines = 3, // Added option for regular lines without pipes
+    Meshes = 4,
+    Polygons = 5,
 }
 
 impl Default for RenderMode {
@@ -22,6 +23,7 @@ mod model_line;
 mod model;
 mod model_pipe;
 mod model_point;
+mod model_polygon;
 mod pipeline;
 mod renderer;
 mod resources;
@@ -33,6 +35,7 @@ use crate::model::{DrawModel, DrawLight, Vertex};
 // No need to import DrawLines since we're not using the trait directly
 use crate::model_point::{DrawQuadPoints, QuadPointModel, PointVertex as MPPointVertex};
 use crate::model_pipe::{DrawPipes, PipeVertex};
+use crate::model_polygon::{DrawPolygons, PolygonVertex};
 use crate::instance::Instance;
 use winit::{
     event::*,
@@ -65,11 +68,13 @@ struct State<'a> {
     point_pipeline: Option<wgpu::RenderPipeline>, // Pipeline for points
     line_pipeline: Option<wgpu::RenderPipeline>,  // Pipeline for lines
     pipe_pipeline: Option<wgpu::RenderPipeline>,  // Pipeline for 3D pipe lines
+    polygon_pipeline: Option<wgpu::RenderPipeline>,  // Pipeline for polygons
     obj_model: model::Model,
     point_model: Option<model::PointModel>,      // Optional point cloud model
     quad_point_model: Option<model_point::QuadPointModel>, // Optional quad-based point model for billboard rendering
     line_model: Option<model::LineModel>,        // Optional line model
     pipe_model: Option<model_pipe::PipeModel>, // 3D pipe model with thickness
+    polygon_model: Option<model_polygon::PolygonModel>, // Polygon model for flat surfaces
     render_mode: RenderMode,                     // Current rendering mode
     camera: camera::Camera,                      // UPDATED!
     projection: camera::Projection,              // NEW!
@@ -671,6 +676,63 @@ impl<'a> State<'a> {
             multiview: None,
         });
 
+        // Create polygon pipeline
+        let polygon_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("polygon_pipeline_layout"),
+            bind_group_layouts: &[&camera_bind_group_layout],
+            push_constant_ranges: &[],
+        });
+        
+        let polygon_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            cache: None,
+            label: Some("polygon_pipeline"),
+            layout: Some(&polygon_pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &device.create_shader_module(wgpu::ShaderModuleDescriptor {
+                    label: Some("polygon_shader"),
+                    source: wgpu::ShaderSource::Wgsl(include_str!("shaders/polygon.wgsl").into()),
+                }),
+                entry_point: Some("vs_main"),
+                buffers: &[PolygonVertex::desc()],
+                compilation_options: Default::default(),
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &device.create_shader_module(wgpu::ShaderModuleDescriptor {
+                    label: Some("polygon_shader"),
+                    source: wgpu::ShaderSource::Wgsl(include_str!("shaders/polygon.wgsl").into()),
+                }),
+                entry_point: Some("fs_main"),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: config.format,
+                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+                compilation_options: Default::default(),
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                strip_index_format: None,
+                front_face: wgpu::FrontFace::Ccw,
+                cull_mode: None, // No culling to start with, easier for debugging
+                polygon_mode: wgpu::PolygonMode::Fill,
+                conservative: false,
+                unclipped_depth: false,
+            },
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: DEPTH_FORMAT,
+                depth_write_enabled: true,
+                depth_compare: wgpu::CompareFunction::Less,
+                stencil: wgpu::StencilState::default(),
+                bias: wgpu::DepthBiasState::default(),
+            }),
+            multisample: wgpu::MultisampleState {
+                count: 1,
+                mask: !0,
+                alpha_to_coverage_enabled: false,
+            },
+            multiview: None,
+        });
+
         let light_render_pipeline = {
             let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Light Pipeline Layout"),
@@ -732,11 +794,13 @@ impl<'a> State<'a> {
             point_pipeline,
             line_pipeline,
             pipe_pipeline: Some(pipe_pipeline),
+            polygon_pipeline: Some(polygon_pipeline),
             obj_model,
             point_model, // Assigned point model
             quad_point_model, // Assigned quad-based point model
             line_model,  // Assigned line model
             pipe_model: None, // Will be generated from line model when needed
+            polygon_model: None, // Will be created separately when needed
             render_mode: RenderMode::default(),  // Default to rendering everything
             camera,
             projection,
@@ -818,6 +882,13 @@ impl<'a> State<'a> {
                     KeyCode::Digit4 => {
                         self.render_mode = RenderMode::RegularLines;
                         println!("Render mode: Regular Lines (4)");
+                        true
+                    }
+                    KeyCode::Digit5 => {
+                        self.render_mode = RenderMode::Polygons;
+                        println!("Render mode: Polygons (5)");
+                        // Create sample polygon when switching to polygon mode
+                        self.create_sample_polygon();
                         true
                     }
                     // Point size is now hardcoded directly in the shader
@@ -1001,6 +1072,109 @@ impl<'a> State<'a> {
         vertices
     }
     
+    /// Create a grid of polygons matching other geometries
+    fn create_sample_polygon(&mut self) {
+        const SCALE_FACTOR: f32 = 0.25; // Size factor for polygon
+
+        // Collect all polygon vertex data and indices
+        let mut all_vertices = Vec::new();
+        let mut all_indices = Vec::new();
+        let mut vertex_count: u32 = 0;
+        
+        // Use the same instances stored in self.instances
+        // This guarantees the same positions and rotations as other geometry
+        println!("Creating polygon grid with {} instances", self.instances.len());
+        
+        // Create polygons at each instance position with the same rotation as other geometries
+        for instance in &self.instances {
+            let pos = instance.position;
+            let rotation = instance.rotation;
+            
+            // Create a single color for the entire polygon based on its position
+            // Use position to generate consistent colors
+            let x_normalized = (pos.x + 15.0) / 30.0;  // Normalize x in [-15,15] to [0,1]
+            let z_normalized = (pos.z + 15.0) / 30.0;  // Normalize z in [-15,15] to [0,1]
+            let color = [
+                x_normalized, 
+                (1.0 - x_normalized) * z_normalized,
+                1.0 - z_normalized,
+            ];
+            
+            // Convert the quaternion rotation to a 4x4 matrix - EXACTLY like in line code
+            let rotation_matrix = cgmath::Matrix4::from(rotation);
+            
+            // Define the same start/end points as the lines to ensure exact alignment
+            // Lines use these exact coordinates
+            let start_local = cgmath::Point3::new(0.0, -0.5, 0.0);
+            let end_local = cgmath::Point3::new(0.0, 1.5, 0.0);
+            
+            // Create polygon vertices around the same vertical line
+            let vertex_positions = [
+                // Top vertex at the same position as the line end
+                cgmath::Point3::new(0.0, end_local.y, 0.0),
+                
+                // Create points in a circle around the line at middle height
+                cgmath::Point3::new(SCALE_FACTOR, 0.5, 0.0),
+                cgmath::Point3::new(0.0, 0.5, SCALE_FACTOR),
+                cgmath::Point3::new(-SCALE_FACTOR, 0.5, 0.0),
+                cgmath::Point3::new(0.0, 0.5, -SCALE_FACTOR),
+                
+                // Bottom vertex at the same position as the line start
+                cgmath::Point3::new(0.0, start_local.y, 0.0),
+            ];
+            
+            // Add vertices for this polygon instance exactly the same way as lines
+            for local_pos in &vertex_positions {
+                // Transform using the rotation matrix and then translate - SAME as lines
+                let rotated_pos = rotation_matrix * cgmath::Vector4::new(
+                    local_pos.x, local_pos.y, local_pos.z, 1.0
+                );
+                
+                // Apply position offset
+                let world_pos = cgmath::Point3::new(
+                    rotated_pos.x + pos.x,
+                    rotated_pos.y + pos.y,
+                    rotated_pos.z + pos.z
+                );
+                
+                // Add transformed vertex with instance color
+                all_vertices.push(model_polygon::PolygonVertex {
+                    position: [world_pos.x, world_pos.y, world_pos.z],
+                    color,
+                });
+            }
+            
+            // Create triangles for a pyramid-like shape connecting vertices
+            // Top to middle points
+            all_indices.extend_from_slice(&[
+                // Top triangles (connect top to side points)
+                vertex_count, vertex_count + 1, vertex_count + 2,
+                vertex_count, vertex_count + 2, vertex_count + 3,
+                vertex_count, vertex_count + 3, vertex_count + 4,
+                vertex_count, vertex_count + 4, vertex_count + 1,
+                
+                // Bottom triangles (connect bottom to side points)
+                vertex_count + 5, vertex_count + 2, vertex_count + 1,
+                vertex_count + 5, vertex_count + 3, vertex_count + 2,
+                vertex_count + 5, vertex_count + 4, vertex_count + 3,
+                vertex_count + 5, vertex_count + 1, vertex_count + 4,
+            ]);
+            
+            // Update the vertex count for the next polygon
+            vertex_count += 6;
+        }
+
+        println!("Created {} polygons with {} vertices total", self.instances.len(), all_vertices.len());
+        
+        // Create the polygon model from our vertices and indices
+        self.polygon_model = Some(model_polygon::PolygonModel::new(
+            &self.device,
+            "polygon_grid",
+            &all_vertices,
+            &all_indices,
+        ));
+    }
+
     /// Convert regular lines from line_model into 3D pipe lines
     fn create_pipes_from_lines(&mut self) {
         // Lazily create a pipe model from the line model if needed
@@ -1252,6 +1426,12 @@ impl<'a> State<'a> {
                         render_pass.draw_pipes(model, &self.camera_bind_group);
                     }
                     
+                    // Render polygons if available
+                    if let (Some(pipeline), Some(model)) = (&self.polygon_pipeline, &self.polygon_model) {
+                        render_pass.set_pipeline(pipeline);
+                        render_pass.draw_polygons(model, &self.camera_bind_group);
+                    }
+                    
                     // Commented out regular line rendering in favor of 3D pipe lines
                     /*
                     if let (Some(pipeline), Some(model)) = (&self.line_pipeline, &self.line_model) {
@@ -1320,6 +1500,42 @@ impl<'a> State<'a> {
                         render_pass.set_vertex_buffer(0, model.vertex_buffer.slice(..));
                         render_pass.set_bind_group(0, &self.camera_bind_group, &[]);
                         render_pass.draw(0..model.num_vertices, 0..1);
+                    }
+                },
+                RenderMode::Polygons => {
+                    // Create sample polygon if it doesn't exist
+                    if self.polygon_model.is_none() {
+                        // Release the render pass to modify state
+                        drop(render_pass);
+                        self.create_sample_polygon();
+                        // Re-acquire render pass
+                        render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                            label: Some("Render Pass"),
+                            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                                view: &view,
+                                resolve_target: None,
+                                ops: wgpu::Operations {
+                                    load: wgpu::LoadOp::Load,
+                                    store: wgpu::StoreOp::Store,
+                                },
+                            })],
+                            depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                                view: &self.depth_texture.view,
+                                depth_ops: Some(wgpu::Operations {
+                                    load: wgpu::LoadOp::Load,
+                                    store: wgpu::StoreOp::Store,
+                                }),
+                                stencil_ops: None,
+                            }),
+                            occlusion_query_set: None,
+                            timestamp_writes: None,
+                        });
+                    }
+                    
+                    // Render the polygon model
+                    if let (Some(pipeline), Some(model)) = (&self.polygon_pipeline, &self.polygon_model) {
+                        render_pass.set_pipeline(pipeline);
+                        render_pass.draw_polygons(model, &self.camera_bind_group);
                     }
                 },
                 RenderMode::Meshes => {

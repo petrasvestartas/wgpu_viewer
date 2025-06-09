@@ -204,7 +204,7 @@ pub async fn load_model(
             });
 
             model::Mesh {
-                name: file_name.to_string(),
+                _name: file_name.to_string(),
                 vertex_buffer,
                 index_buffer,
                 num_elements: m.mesh.indices.len() as u32,

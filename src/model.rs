@@ -184,12 +184,14 @@ pub struct Model {
 }
 
 pub struct PointModel {
+    #[allow(dead_code)]
     pub name: String,
     pub vertex_buffer: wgpu::Buffer,
     pub num_vertices: u32,
 }
 
 pub struct LineModel {
+    #[allow(dead_code)]
     pub name: String,
     pub vertex_buffer: wgpu::Buffer,
     pub num_vertices: u32,

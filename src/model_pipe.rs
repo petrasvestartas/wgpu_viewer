@@ -1,12 +1,24 @@
+//! # Pipe Model Module
+//! 
+//! This module provides functionality for rendering 3D lines as cylindrical pipes.
+//! It defines data structures and traits for storing and rendering collections
+//! of 3D pipe segments with position, color and radius attributes.
+//!
+//! Key components:
+//! - `PipeVertex`: Vertex structure for pipes with position and color
+//! - `PipeSegment`: Definition of a pipe segment with start, end, color and radius
+//! - `PipeModel`: A collection of pipe segments rendered as 3D cylinders
+//! - `DrawPipes` trait: Rendering abstraction for pipe collections
+
 use wgpu::util::DeviceExt;
 use cgmath::*;
 
 // Configuration constants
-pub const PIPE_RADIUS: f32 = 0.3;  // Default pipe radius/thickness
+pub const PIPE_RADIUS: f32 = 0.05;  // Default pipe radius/thickness
 pub const PIPE_COLOR: [f32; 3] = [1.0, 0.0, 0.0];  // Bright red for debugging
 pub const PIPE_RESOLUTION: u32 = 12;  // Number of sides for cylinder approximation
 
-// Line segment definition
+// Pipe segment definition
 #[derive(Debug, Clone)]
 pub struct PipeSegment {
     pub start: [f32; 3],
@@ -101,7 +113,7 @@ impl PipeModel {
     }
 }
 
-// Create a cylinder mesh along a pipe segment with no-nonsense, hardcoded correct approach
+// Create a cylinder mesh along a pipe segment with consistent counter-clockwise winding
 fn create_cylinder_for_pipe(
     segment: &PipeSegment,
     sides: u32,

@@ -1,5 +1,4 @@
 use std::{f32::consts::PI, iter};
-use crate::pipe_model::PipeVertex;
 
 /// Specifies what type of geometry to render
 #[derive(Debug, Copy, Clone, PartialEq)]
@@ -20,10 +19,10 @@ impl Default for RenderMode {
 mod camera;
 mod instance;
 mod model_line;
-mod model_point;
 mod model;
+mod model_pipe;
+mod model_point;
 mod pipeline;
-mod pipe_model;
 mod renderer;
 mod resources;
 mod texture;
@@ -33,7 +32,7 @@ use wgpu::util::DeviceExt;
 use crate::model::{DrawModel, DrawLight, Vertex};
 // No need to import DrawLines since we're not using the trait directly
 use crate::model_point::{DrawQuadPoints, QuadPointModel, PointVertex as MPPointVertex};
-use crate::pipe_model::{DrawPipes};
+use crate::model_pipe::{DrawPipes, PipeVertex};
 use crate::instance::Instance;
 use winit::{
     event::*,
@@ -70,7 +69,7 @@ struct State<'a> {
     point_model: Option<model::PointModel>,      // Optional point cloud model
     quad_point_model: Option<model_point::QuadPointModel>, // Optional quad-based point model for billboard rendering
     line_model: Option<model::LineModel>,        // Optional line model
-    pipe_model: Option<pipe_model::PipeModel>, // 3D pipe model with thickness
+    pipe_model: Option<model_pipe::PipeModel>, // 3D pipe model with thickness
     render_mode: RenderMode,                     // Current rendering mode
     camera: camera::Camera,                      // UPDATED!
     projection: camera::Projection,              // NEW!
@@ -1086,11 +1085,11 @@ impl<'a> State<'a> {
                     );
                     
                     // Add the segment directly (without going through LineVertex intermediate)
-                    line_segments.push(pipe_model::PipeSegment {
+                    line_segments.push(model_pipe::PipeSegment {
                         start: [start_world.x, start_world.y, start_world.z],
                         end: [end_world.x, end_world.y, end_world.z],
-                        color: pipe_model::PIPE_COLOR,
-                        radius: pipe_model::PIPE_RADIUS,
+                        color: model_pipe::PIPE_COLOR,
+                        radius: model_pipe::PIPE_RADIUS,
                     });
                 }
             }
@@ -1099,45 +1098,45 @@ impl<'a> State<'a> {
             let axis_length = 5.0;
             
             // X axis (red)
-            line_segments.push(pipe_model::PipeSegment {
+            line_segments.push(model_pipe::PipeSegment {
                 start: [0.0, 0.0, 0.0],
                 end: [axis_length, 0.0, 0.0],
                 color: [1.0, 0.0, 0.0], // Red for X axis
-                radius: pipe_model::PIPE_RADIUS,
+                radius: model_pipe::PIPE_RADIUS,
             });
             
             // Y axis (green)
-            line_segments.push(pipe_model::PipeSegment {
+            line_segments.push(model_pipe::PipeSegment {
                 start: [0.0, 0.0, 0.0],
                 end: [0.0, axis_length, 0.0],
                 color: [0.0, 1.0, 0.0], // Green for Y axis
-                radius: pipe_model::PIPE_RADIUS,
+                radius: model_pipe::PIPE_RADIUS,
             });
             
             // Z axis (blue) - Make sure it's highly visible
-            line_segments.push(pipe_model::PipeSegment {
+            line_segments.push(model_pipe::PipeSegment {
                 start: [0.0, 0.0, 0.0],
                 end: [0.0, 0.0, axis_length],
                 color: [0.0, 0.0, 1.0], // Blue for Z axis
-                radius: pipe_model::PIPE_RADIUS * 1.2, // Slightly larger radius for better visibility
+                radius: model_pipe::PIPE_RADIUS * 1.2, // Slightly larger radius for better visibility
             });
             
             // Extra blue line for testing
-            line_segments.push(pipe_model::PipeSegment {
+            line_segments.push(model_pipe::PipeSegment {
                 start: [0.0, 0.0, 0.0],
                 end: [0.0, 0.0, -axis_length], // Negative z direction
                 color: [0.0, 0.2, 1.0], // Light blue for negative Z
-                radius: pipe_model::PIPE_RADIUS,
+                radius: model_pipe::PIPE_RADIUS,
             });
             
             println!("Creating 3D pipes from {} line segments", line_segments.len());
             
             // Create the pipe model with the line segments
-            self.pipe_model = Some(pipe_model::PipeModel::new(
+            self.pipe_model = Some(model_pipe::PipeModel::new(
                 &self.device,
                 "pipe_model",
                 &line_segments,
-                pipe_model::PIPE_RESOLUTION,
+                model_pipe::PIPE_RESOLUTION,
             ));
         }
     }

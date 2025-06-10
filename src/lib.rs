@@ -28,6 +28,8 @@ mod pipeline;
 mod renderer;
 mod resources;
 mod texture;
+pub mod geometry_generator;
+pub mod demo_geometries;
 
 use cgmath::prelude::*;
 use wgpu::util::DeviceExt;
@@ -406,12 +408,9 @@ impl<'a> State<'a> {
             color: [0.0, 0.0, 1.0],
         });
         
-        // Create the line model from the vertices
-        let line_model = Some(model::LineModel::new(
-            &device,
-            "grid",
-            &line_vertices,
-        ));
+        // Create the grid line model using our geometry generator
+        println!("Creating 10x10 grid of lines with 1 unit spacing");
+        let line_model = Some(geometry_generator::create_grid_lines(&device));
 
         let light_uniform = LightUniform {
             position: [2.0, 2.0, 2.0],

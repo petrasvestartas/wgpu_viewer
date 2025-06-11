@@ -54,45 +54,53 @@ pub fn create_grid_lines(device: &wgpu::Device) -> LineModel {
     let grid_start = -half_size;
     let grid_end = half_size;
     
-    let grid_color = [0.7, 0.7, 0.7]; // Grey color for all grid lines
+    // Define colors for each axis
     let x_axis_color = [1.0, 0.0, 0.0]; // Red for X axis
     let y_axis_color = [0.0, 1.0, 0.0]; // Green for Y axis
+    let z_axis_color = [0.0, 0.0, 1.0]; // Blue for Z axis
+    let grid_color = [0.7, 0.7, 0.7]; // Grey color for grid lines
     
     // A slight elevation to make the axes more visible
     let axis_elevation = 0.02;
     
-    // Create grid lines along X and Z axes (all grey)
+    // Create grid lines along X and Z axes with grey color for all of them
     for i in 0..=grid_size {
         let pos = grid_start + (i as f32 * grid_spacing);
         
-        // X-axis line (varying Z)
+        // Lines parallel to X axis (varying Z)
         lines.push(Line::new(
-            [pos, 0.0, grid_start], 
-            [pos, 0.0, grid_end],
+            [pos, grid_start, 0.0], 
+            [pos, grid_end, 0.0],
             grid_color
         ));
         
-        // Z-axis line (varying X)
+        // Lines parallel to Z axis (varying X)
         lines.push(Line::new(
-            [grid_start, 0.0, pos], 
-            [grid_end, 0.0, pos],
+            [grid_start, pos, 0.0], 
+            [grid_end, pos, 0.0],
             grid_color
         ));
     }
     
-    // Add X axis (red) from origin to (5,0,0) - slightly elevated
+    // Add X axis (red) from origin extending in positive X
     lines.push(Line::new(
-        [0.0, axis_elevation, 0.0],  // start at origin, slightly elevated
-        [5.0, axis_elevation, 0.0],  // extend 5 units along X axis
+        [0.0, 0.0, axis_elevation],  // start at origin, slightly elevated
+        [5.0, 0.0, axis_elevation],  // extend 5 units along positive X axis
         x_axis_color
     ));
     
-    // Add Y axis (green) from origin to (0,0,-5) - slightly elevated
-    // In this viewer, Y axis is up, and Z axis is forward from origin
+    // Add Y axis (green) extending upward from origin
     lines.push(Line::new(
-        [0.0, axis_elevation, 0.0],  // start at origin, slightly elevated
-        [0.0, axis_elevation, -5.0], // extend 5 units in negative Z direction (which is negative Y in viewer coords)
+        [0.0, 0.0, axis_elevation],           // start at origin
+        [0.0, 5.0, axis_elevation],           // extend 5 units up along Y axis
         y_axis_color
+    ));
+    
+    // Add Z axis (blue) extending in positive Z
+    lines.push(Line::new(
+        [0.0, 0.0, axis_elevation], // start at origin, slightly elevated
+        [0.0, 0.0, 5.0+axis_elevation], // extend 5 units along positive Z axis
+        z_axis_color
     ));
     
     // Convert lines to a LineModel

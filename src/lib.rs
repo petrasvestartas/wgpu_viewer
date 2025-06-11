@@ -1,20 +1,15 @@
 use std::{f32::consts::PI, iter};
 
 /// Specifies what type of geometry to render
-#[derive(Debug, Copy, Clone, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq, Default)]
 pub enum RenderMode {
+    #[default]
     All = 0,
     Points = 1,
     Lines = 2, // Now uses pipe lines by default
     RegularLines = 3, // Added option for regular lines without pipes
     Meshes = 4,
     Polygons = 5,
-}
-
-impl Default for RenderMode {
-    fn default() -> Self {
-        RenderMode::All
-    }
 }
 
 mod camera;
@@ -208,8 +203,13 @@ impl<'a> State<'a> {
 
         // Initialize arcball camera
         let camera_target = cgmath::Point3::new(0.0, 0.0, 0.0); // Target the origin
-        let camera_position = cgmath::Point3::new(10.0, 5.0, 10.0); // Position offset from origin
-        let camera = camera::Camera::new(camera_position, camera_target);
+        let camera_position = cgmath::Point3::new(0.0, 10.0, 10.0); // Position from above and behind
+        let mut camera = camera::Camera::new(camera_position, camera_target);
+        
+        // Set explicit camera orientation (looking from above and behind)
+        camera.pitch = cgmath::Rad(-std::f32::consts::FRAC_PI_4); // -45 degrees (looking down at an angle)
+        camera.yaw = cgmath::Rad(0.0); // 0 degrees rotation (flipped 180 degrees from previous setting)
+        camera.update_position(); // Update position after changing orientation
         let projection =
             camera::Projection::new(config.width, config.height, cgmath::Deg(45.0), 0.1, 100.0);
         let camera_controller = camera::CameraController::new(4.0, 0.4);
@@ -449,6 +449,8 @@ impl<'a> State<'a> {
             label: None,
         });
 
+        const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
+        
         let depth_texture =
             texture::Texture::create_depth_texture(&device, &config, "depth_texture");
 
@@ -472,7 +474,7 @@ impl<'a> State<'a> {
                 &device,
                 &render_pipeline_layout,
                 config.format,
-                Some(texture::Texture::DEPTH_FORMAT),
+                Some(DEPTH_FORMAT),
                 &[model::ModelVertex::desc(), InstanceRaw::desc()],
                 shader,
             )
@@ -541,7 +543,7 @@ impl<'a> State<'a> {
                     conservative: false,
                 },
                 depth_stencil: Some(wgpu::DepthStencilState {
-                    format: texture::Texture::DEPTH_FORMAT,
+                    format: DEPTH_FORMAT,
                     depth_write_enabled: true,
                     depth_compare: wgpu::CompareFunction::Less,
                     stencil: wgpu::StencilState::default(),
@@ -601,7 +603,7 @@ impl<'a> State<'a> {
                     conservative: false,
                 },
                 depth_stencil: Some(wgpu::DepthStencilState {
-                    format: texture::Texture::DEPTH_FORMAT,
+                    format: DEPTH_FORMAT,
                     depth_write_enabled: true,
                     depth_compare: wgpu::CompareFunction::Less,
                     stencil: wgpu::StencilState::default(),
@@ -624,9 +626,6 @@ impl<'a> State<'a> {
             push_constant_ranges: &[],
         });
 
-        // Define the depth format as a constant instead of an associated const
-        const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
-        
         let pipe_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             cache: None,
             label: Some("pipe_pipeline"),
@@ -748,7 +747,7 @@ impl<'a> State<'a> {
                 &device,
                 &layout,
                 config.format,
-                Some(texture::Texture::DEPTH_FORMAT),
+                Some(DEPTH_FORMAT),
                 &[model::ModelVertex::desc()],
                 shader,
             )
@@ -811,6 +810,7 @@ impl<'a> State<'a> {
             camera_buffer,
             camera_bind_group,
             instances,
+            #[allow(dead_code)]
             instance_buffer,
             depth_texture,
             light_uniform,
@@ -824,7 +824,7 @@ impl<'a> State<'a> {
     }
 
     pub fn window(&self) -> &Window {
-        &self.window
+        self.window
     }
 
     fn resize(&mut self, new_size: winit::dpi::PhysicalSize<u32>) {
@@ -876,13 +876,13 @@ impl<'a> State<'a> {
                         true
                     }
                     KeyCode::Digit3 => {
-                        self.render_mode = RenderMode::Meshes;
-                        println!("Render mode: Meshes (3)");
+                        self.render_mode = RenderMode::RegularLines;
+                        println!("Render mode: Regular Lines (3)");
                         true
                     }
                     KeyCode::Digit4 => {
-                        self.render_mode = RenderMode::RegularLines;
-                        println!("Render mode: Regular Lines (4)");
+                        self.render_mode = RenderMode::Meshes;
+                        println!("Render mode: Meshes (4)");
                         true
                     }
                     KeyCode::Digit5 => {
@@ -1295,12 +1295,9 @@ impl<'a> State<'a> {
                         });
                         
                         // Need to reset these since we dropped the render pass
-                        match self.render_mode {
-                            RenderMode::All => {
-                                // Reset the pipeline and instance buffer
-                                render_pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
-                            },
-                            _ => {}
+                        if self.render_mode == RenderMode::All {
+                            // Reset the pipeline and instance buffer
+                            render_pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
                         }
                     }
                     

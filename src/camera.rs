@@ -1,5 +1,5 @@
 use cgmath::*;
-use std::f32::consts::{FRAC_PI_2, PI};
+use std::f32::consts::FRAC_PI_2;
 use std::time::Duration;
 use winit::dpi::PhysicalPosition;
 use winit::event::*;
@@ -41,6 +41,7 @@ impl Camera {
         // Calculate initial yaw and pitch from position
         let yaw = Rad(offset.x.atan2(offset.z));
         let pitch = Rad((offset.y / distance).asin().min(SAFE_FRAC_PI_2).max(-SAFE_FRAC_PI_2));
+
         
         Self {
             position,

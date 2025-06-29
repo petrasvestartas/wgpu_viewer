@@ -1,5 +1,5 @@
 use cgmath::*;
-use std::f32::consts::{FRAC_PI_2, PI};
+use std::f32::consts::FRAC_PI_2;
 use std::time::Duration;
 use winit::dpi::PhysicalPosition;
 use winit::event::*;
@@ -37,95 +37,160 @@ pub struct Camera {
     pub up: Vector3<f32>,
     // Distance from target (used for zoom)
     pub distance: f32,
-    // Horizontal rotation angle around world Y-axis (in radians)
-    pub yaw: Rad<f32>,
-    // Vertical rotation angle (in radians)
-    pub pitch: Rad<f32>,
-    // Whether to maintain world up vector (turntable/orbit mode) or allow free rotation
-    pub turntable_mode: bool,
+    // Quaternion for orientation instead of yaw/pitch
+    pub orientation: Quaternion<f32>,
     // The world up direction (typically Z in 3D modeling software)
     pub world_up: Vector3<f32>,
+    // Whether to maintain world up vector (turntable/orbit mode) or allow free rotation
+    pub turntable_mode: bool,
+    // Reference vectors to track orientation and prevent flipping
+    pub reference_frame: Matrix3<f32>,  // Stable reference frame used for consistent rotations
+    pub last_right: Vector3<f32>,      // Cached right vector for stable pole handling
+    
+    // Original camera settings to enable returning to default view
+    pub initial_position: Point3<f32>,
+    pub initial_target: Point3<f32>,
+    pub initial_orientation: Quaternion<f32>,
+    pub initial_distance: f32,
 }
 
 impl Camera {
     pub fn new<V: Into<Point3<f32>>>(position: V, target: Point3<f32>) -> Self {
         let position = position.into();
-        let offset = position - target;
-        let distance = offset.magnitude();
         
-        // In most 3D modeling software, Z is up
+        // Calculate initial distance from target
+        let distance = (position - target).magnitude();
+        
+        // Calculate initial orientation based on position
+        let dir = (target - position).normalize();
+        
+        // Define world up vector (Z-up for professional 3D software standard)
         let world_up = Vector3::unit_z();
         
-        // Calculate initial yaw (around Z) and pitch in a Z-up world
-        // In Z-up world, the default view is looking down the Y axis
-        let xz_dist = (offset.x * offset.x + offset.y * offset.y).sqrt();
-        let yaw = Rad(offset.y.atan2(offset.x));
-        let pitch = Rad((-offset.z / distance).asin().min(SAFE_FRAC_PI_2).max(-SAFE_FRAC_PI_2));
+        // Calculate initial orientation quaternion
+        let orientation = Quaternion::look_at(dir, world_up);
         
+        // Initialize stable reference frame
+        let forward = -dir;
+        let right = if forward.dot(world_up).abs() > 0.99 {
+            // If aligned with pole, pick an arbitrary but consistent right vector
+            Vector3::unit_x()
+        } else {
+            // Normal case - get perpendicular right vector
+            forward.cross(world_up).normalize()
+        };
+        let up = right.cross(forward).normalize();
+        
+        // Create reference frame matrix from orthogonal basis vectors
+        let reference_frame = Matrix3::from_cols(right, up, forward);
+        
+        // Create Camera with professional default settings
         let mut cam = Self {
             position,
             target,
-            up: world_up,
+            up: world_up,  // Z-up coordinate system (professional 3D software standard)
             distance,
-            yaw,
-            pitch,
-            turntable_mode: TURNTABLE_MODE,
-            world_up,
+            orientation,
+            world_up: Vector3::unit_z(),  // Z-up for turntable orbit mode
+            turntable_mode: true,  // Default to turntable mode (professional standard)
+            reference_frame,
+            last_right: right,
+            
+            // Store initial camera settings for reset functionality
+            initial_position: position,
+            initial_target: target,
+            initial_orientation: orientation,
+            initial_distance: distance,
         };
         
         cam.update_position();
         cam
     }
 
-    // Update the camera position based on yaw, pitch, and distance - orbit style
+    // Update the camera position based on quaternion orientation and distance
     pub fn update_position(&mut self) {
         if self.turntable_mode {
-            // In 3D modeling software with Z-up, standard turntable camera:
-            // Yaw rotates around the z-axis (world up)
-            // Pitch rotates around the local x-axis
+            // Pure quaternion-based camera implementation for seamless orbit
+            // This eliminates Euler angles entirely and properly avoids gimbal lock
             
-            let (sin_yaw, cos_yaw) = self.yaw.0.sin_cos();
-            let (sin_pitch, cos_pitch) = self.pitch.0.sin_cos();
+            // Step 1: Calculate position from orientation quaternion
+            // The initial view direction is along -Y in our coordinate system
+            let initial_offset = Vector3::new(0.0, -self.distance, 0.0);
             
-            // First calculate position as if looking down Z axis
-            // Start with the camera at (0,distance,0) looking at origin
-            let offset = Vector3::new(
-                0.0,
-                0.0,
-                self.distance,
-            );
+            // Apply the orientation quaternion to get the final position offset
+            let final_offset = self.orientation.rotate_vector(initial_offset);
             
-            // Apply pitch rotation around X axis
-            let pitch_rotation = Matrix3::from_axis_angle(Vector3::unit_x(), self.pitch);
-            let pitched_offset = pitch_rotation * offset;
-            
-            // Apply yaw rotation around Z axis (world up in 3D modeling)
-            let yaw_rotation = Matrix3::from_axis_angle(self.world_up, self.yaw);
-            let final_offset = yaw_rotation * pitched_offset;
-            
-            // Apply to target to get final position
             self.position = self.target + final_offset;
             
-            // Compute view up vector to maintain proper orientation
-            // In turntable mode, the up vector always stays aligned with world up
-            // but we need to handle the case when looking directly down the up axis
-            let view_dir = (self.target - self.position).normalize();
-            let dot = self.world_up.dot(view_dir);
+            // Get forward vector from current orientation
+            let forward = -self.orientation.rotate_vector(Vector3::unit_y());
             
-            // If we're looking nearly parallel to the up vector, adjust the up vector
-            if dot.abs() > 0.99 {
-                // Use the yaw to create a stable up vector
-                self.up = yaw_rotation * Vector3::unit_y();
+            // Update reference frame to maintain continuity
+            // When we get close to the poles, we use the previous reference frame's right vector
+            // as a stable reference, rather than recomputing it from scratch
+            let alignment = forward.dot(self.world_up).abs();
+            
+            let right = if alignment > 0.98 {
+                // Near pole - use the last stable right vector
+                // This prevents the sudden 180-degree flip when crossing poles
+                self.last_right
             } else {
-                self.up = self.world_up;
-            }
+                // Normal case - compute right vector perpendicular to forward and world up
+                let computed_right = forward.cross(self.world_up).normalize();
+                
+                // To prevent instability when approaching the pole,
+                // we ensure the new right vector doesn't flip relative to the previous one
+                if computed_right.dot(self.last_right) < 0.0 {
+                    -computed_right // Flip to maintain consistency with last frame
+                } else {
+                    computed_right
+                }
+            };
+            
+            // Store right vector for next frame
+            self.last_right = right;
+            
+            // Compute up vector from right and forward to complete orthogonal basis
+            // This ensures the up vector is always perpendicular to the view direction
+            let up = right.cross(forward).normalize();
+            
+            // Update reference frame matrix
+            self.reference_frame = Matrix3::from_cols(right, up, forward);
+            
+            // Use the up vector from our continuously tracked reference frame
+            self.up = up;
         } else {
-            // Free orbit mode - classic FPS camera
-            let pitch_rotation = Matrix3::from_axis_angle(Vector3::unit_x(), self.pitch);
-            let yaw_rotation = Matrix3::from_axis_angle(Vector3::unit_y(), self.yaw);
-            let forward = yaw_rotation * pitch_rotation * -Vector3::unit_z();
-            self.position = self.target + (forward * self.distance);
+            // Free orbit mode - use quaternion directly
+            let initial_offset = Vector3::new(0.0, 0.0, -self.distance);
+            let final_offset = self.orientation.rotate_vector(initial_offset);
+            self.position = self.target + final_offset;
+            self.up = self.orientation.rotate_vector(Vector3::unit_y());
         }
+    }
+
+    pub fn reset_zoom(&mut self) {
+        self.distance = 10.0;
+    }
+    
+    /// Reset the camera to its initial position and orientation
+    pub fn reset_to_initial(&mut self) {
+        self.position = self.initial_position;
+        self.target = self.initial_target;
+        self.orientation = self.initial_orientation;
+        self.distance = self.initial_distance;
+        
+        // Make sure the right vector is reset correctly
+        let forward = -self.orientation.rotate_vector(Vector3::unit_y());
+        let right = if forward.dot(self.world_up).abs() > 0.99 {
+            Vector3::unit_x() // Default if aligned with pole
+        } else {
+            forward.cross(self.world_up).normalize() // Normal perpendicular vector
+        };
+        
+        self.last_right = right;
+        
+        // Update position based on orientation
+        self.update_position();
     }
 
     pub fn calc_matrix(&self) -> Matrix4<f32> {
@@ -160,11 +225,12 @@ impl Camera {
     }
 }
 
+// For handling perspective projection matrix
 pub struct Projection {
-    aspect: f32,
-    fovy: Rad<f32>,
-    znear: f32,
-    zfar: f32,
+    pub aspect: f32,
+    pub fovy: Rad<f32>,
+    pub znear: f32,
+    pub zfar: f32,
 }
 
 impl Projection {
@@ -216,6 +282,8 @@ pub struct CameraController {
     orbit_speed: f32,      // Speed multiplier for orbit rotation
     zoom_speed: f32,       // Zoom speed factor
     orbit_invert_y: bool,  // Whether to invert Y axis for orbiting (common option in 3D software)
+    max_rotation_per_frame: f32, // Maximum rotation angle per frame in radians
+    reset_camera_pressed: bool, // Flag to reset camera to initial position
 }
 
 impl CameraController {
@@ -238,6 +306,8 @@ impl CameraController {
             orbit_speed: 1.5,    // Increased orbit speed for responsive control
             zoom_speed: 0.05,    // Reduced for softer zoom
             orbit_invert_y: false, // Standard behavior in most 3D software
+            max_rotation_per_frame: 0.1, // Limit to about 5.7 degrees per frame
+            reset_camera_pressed: false,
         }
     }
 
@@ -259,6 +329,13 @@ impl CameraController {
             }
             KeyCode::KeyD | KeyCode::ArrowRight => {
                 self.amount_right = amount;
+                true
+            }
+            // 'C' key to reset/recenter camera to initial position
+            KeyCode::KeyC => {
+                if state == ElementState::Pressed {
+                    self.reset_camera_pressed = true;
+                }
                 true
             }
             // Alt key for orbit mode (common in 3D software)
@@ -358,26 +435,41 @@ impl CameraController {
             // Apply orbit with configured sensitivity
             let orbit_multiplier = self.orbit_speed * self.sensitivity * dt;
             
-            // Update yaw based on horizontal mouse movement (around world Z axis)
-            camera.yaw += Rad(self.mouse_delta_x * orbit_multiplier);
-            
-            // Update pitch based on vertical mouse movement
-            // Invert if configured in preferences
+            // Calculate raw delta values with clamping
+            let yaw_delta = (self.mouse_delta_x * orbit_multiplier)
+                .clamp(-self.max_rotation_per_frame, self.max_rotation_per_frame);
+                
+            // Calculate pitch delta with inversion if configured
             let pitch_delta = if self.orbit_invert_y {
                 self.mouse_delta_y * orbit_multiplier
             } else {
                 -self.mouse_delta_y * orbit_multiplier
             };
             
-            camera.pitch += Rad(pitch_delta);
+            // Clamp pitch delta as well
+            let pitch_delta = pitch_delta
+                .clamp(-self.max_rotation_per_frame, self.max_rotation_per_frame);
+                
+            // In a quaternion orbit system with reference frame tracking:
+            // 1. Yaw rotates around world up (Z) - unchanged
+            // 2. Pitch rotates around reference frame's tracked right vector
             
-            // Keep pitch within safe limits to prevent gimbal lock
-            // This is standard in 3D modeling software
-            if camera.pitch < -Rad(SAFE_FRAC_PI_2) {
-                camera.pitch = -Rad(SAFE_FRAC_PI_2);
-            } else if camera.pitch > Rad(SAFE_FRAC_PI_2) {
-                camera.pitch = Rad(SAFE_FRAC_PI_2);
-            }
+            // First, create quaternions for the rotations
+            let yaw_rotation = Quaternion::from_axis_angle(camera.world_up, Rad(yaw_delta));
+            
+            // Instead of computing the right vector from orientation,
+            // use the tracked reference right vector for stable pitch rotation
+            let right = camera.last_right;
+            
+            // Create pitch rotation around tracked right vector
+            let pitch_rotation = Quaternion::from_axis_angle(right.normalize(), Rad(pitch_delta));
+            
+            // Apply rotations to camera orientation (pitch then yaw)
+            // Order matters: yaw * (pitch * orientation) gives proper turntable feel
+            camera.orientation = yaw_rotation * pitch_rotation * camera.orientation;
+            
+            // Keep quaternion normalized to prevent drift
+            camera.orientation = camera.orientation.normalize();
             
             // Update camera position after rotation
             camera.update_position();
@@ -394,6 +486,12 @@ impl CameraController {
             // Reset scroll and update position
             self.scroll = 0.0;
             camera.update_position();
+        }
+        
+        // Handle camera reset (c key)
+        if self.reset_camera_pressed {
+            camera.reset_to_initial();
+            self.reset_camera_pressed = false;
         }
     }
 }

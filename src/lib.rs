@@ -206,10 +206,10 @@ impl<'a> State<'a> {
         let camera_position = cgmath::Point3::new(0.0, 10.0, 10.0); // Position from above and behind
         let mut camera = camera::Camera::new(camera_position, camera_target);
         
-        // Set explicit camera orientation (looking from above and behind)
-        camera.pitch = cgmath::Rad(-std::f32::consts::FRAC_PI_4); // -45 degrees (looking down at an angle)
-        camera.yaw = cgmath::Rad(0.0); // 0 degrees rotation (flipped 180 degrees from previous setting)
-        camera.update_position(); // Update position after changing orientation
+        // In the quaternion-based camera, the initial orientation is calculated automatically
+        // based on the position-to-target vector in the Camera::new() method
+        // No need to set pitch or yaw as we're using quaternions now
+        camera.update_position(); // Update position to ensure correct initialization
         let projection =
             camera::Projection::new(config.width, config.height, cgmath::Deg(45.0), 0.1, 100.0);
         let camera_controller = camera::CameraController::new(4.0, 0.4);

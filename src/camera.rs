@@ -1,5 +1,4 @@
 use cgmath::*;
-use std::f32::consts::FRAC_PI_2;
 use std::time::Duration;
 use winit::dpi::PhysicalPosition;
 use winit::event::*;
@@ -13,18 +12,9 @@ pub const OPENGL_TO_WGPU_MATRIX: cgmath::Matrix4<f32> = cgmath::Matrix4::new(
     0.0, 0.0, 0.0, 1.0,
 );
 
-const SAFE_FRAC_PI_2: f32 = FRAC_PI_2 - 0.1;
-
-// Default camera settings
-const DEFAULT_YAW: f32 = 0.0;
-const DEFAULT_PITCH: f32 = 0.0;
-const DEFAULT_ROLL: f32 = 0.0;
-const DEFAULT_DISTANCE: f32 = 10.0;
-const DEFAULT_SENSITIVITY: f32 = 1.0;
-const DEFAULT_SPEED: f32 = 2.0;
+// Camera constraints
 const MIN_ZOOM_DISTANCE: f32 = 0.5;
 const MAX_ZOOM_DISTANCE: f32 = 100.0;
-const TURNTABLE_MODE: bool = true; // Keep world up direction by default
 
 // Professional 3D orbit camera implementation
 #[derive(Debug)]
@@ -168,9 +158,6 @@ impl Camera {
         }
     }
 
-    pub fn reset_zoom(&mut self) {
-        self.distance = 10.0;
-    }
     
     /// Reset the camera to its initial position and orientation
     pub fn reset_to_initial(&mut self) {

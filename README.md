@@ -60,7 +60,7 @@ fuser -k 8002/tcp
 
 ## TODO
 
-- [ ] Cemara arcball
+- [x] Camera arcball
 - [ ] Create geometries from code rather than lib.rs file
 - [ ] Load geometry from JSon file 
 

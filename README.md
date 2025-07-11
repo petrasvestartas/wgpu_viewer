@@ -1,6 +1,6 @@
 # WebGPU Viewer
 
-![Uploading Screenshot from 2025-07-11 21-09-34.png…]()
+<img width="2560" height="1600" alt="Screenshot from 2025-07-11 21-09-34" src="https://github.com/user-attachments/assets/1c1e0911-6593-4672-9425-35f32167ab0e" />
 
 
 

@@ -1,6 +1,7 @@
 # WebGPU Viewer
 
-![Screenshot from 2025-06-01 19-20-28](https://github.com/user-attachments/assets/5c328e87-3e67-4330-a69c-7c460a8cb2c8)
+<img width="2560" height="1600" alt="Screenshot from 2025-07-11 21-09-34" src="https://github.com/user-attachments/assets/1c1e0911-6593-4672-9425-35f32167ab0e" />
+
 
 
 ## Project Structure

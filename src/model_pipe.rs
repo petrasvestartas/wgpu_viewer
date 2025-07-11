@@ -79,18 +79,24 @@ impl PipeModel {
         let mut indices = Vec::new();
         let mut index_offset = 0;
         
-        for segment in pipe_segments {
+        for (i, segment) in pipe_segments.iter().enumerate() {
+            println!("DEBUG: Processing pipe segment {} from {:?} to {:?}", i, segment.start, segment.end);
             let (segment_vertices, mut segment_indices) = 
                 create_cylinder_for_pipe(segment, resolution);
+            
+            println!("DEBUG: Segment {} generated {} vertices, {} indices", i, segment_vertices.len(), segment_indices.len());
             
             // Adjust indices to account for the offset
             for index in &mut segment_indices {
                 *index += index_offset;
             }
             
-            index_offset = vertices.len() as u32;
             vertices.extend(segment_vertices);
             indices.extend(segment_indices);
+            index_offset = vertices.len() as u32;  // Calculate offset AFTER extending vertices
+            
+            println!("DEBUG: After segment {}: total vertices={}, total indices={}, next offset={}", 
+                i, vertices.len(), indices.len(), index_offset);
         }
         
         let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {

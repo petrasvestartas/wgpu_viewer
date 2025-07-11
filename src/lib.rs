@@ -22,7 +22,8 @@ mod model_polygon;
 mod pipeline;
 mod renderer;
 mod resources;
-mod texture;
+// mod texture; // Removed - textures no longer used
+mod geometry_loader;
 pub mod geometry_generator;
 pub mod demo_geometries;
 
@@ -67,6 +68,7 @@ struct State<'a> {
     pipe_pipeline: Option<wgpu::RenderPipeline>,  // Pipeline for 3D pipe lines
     polygon_pipeline: Option<wgpu::RenderPipeline>,  // Pipeline for polygons
     obj_model: model::Model,
+    additional_mesh_models: Vec<model::Model>,  // Additional mesh models loaded from JSON
     point_model: Option<model::PointModel>,      // Optional point cloud model
     quad_point_model: Option<model_point::QuadPointModel>, // Optional quad-based point model for billboard rendering
     line_model: Option<model::LineModel>,        // Optional line model
@@ -83,14 +85,13 @@ struct State<'a> {
     instances: Vec<Instance>,
     #[allow(dead_code)]
     instance_buffer: wgpu::Buffer,
-    depth_texture: texture::Texture,
+    depth_texture_view: wgpu::TextureView,
     size: winit::dpi::PhysicalSize<u32>,
     light_uniform: LightUniform,
     light_buffer: wgpu::Buffer,
     light_bind_group: wgpu::BindGroup,
     light_render_pipeline: wgpu::RenderPipeline,
-    #[allow(dead_code)]
-    debug_material: model::Material,
+    // debug_material removed - materials no longer used in texture-free pipeline
     // NEW!
     mouse_pressed: bool,
 }
@@ -161,43 +162,10 @@ impl<'a> State<'a> {
             desired_maximum_frame_latency: 2,
         };
 
+        // Create an empty texture bind group layout since we removed all texture dependencies
         let texture_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                entries: &[
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Texture {
-                            multisampled: false,
-                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                            view_dimension: wgpu::TextureViewDimension::D2,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 1,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                        count: None,
-                    },
-                    // normal map
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 2,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Texture {
-                            multisampled: false,
-                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                            view_dimension: wgpu::TextureViewDimension::D2,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 3,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                        count: None,
-                    },
-                ],
+                entries: &[], // No entries needed anymore as we removed textures
                 label: Some("texture_bind_group_layout"),
             });
 
@@ -233,30 +201,18 @@ impl<'a> State<'a> {
         println!("DEBUG: NUM_INSTANCES_PER_ROW = {}", NUM_INSTANCES_PER_ROW);
         println!("DEBUG: SPACE_BETWEEN = {}", SPACE_BETWEEN);
         
-        let instances = (0..NUM_INSTANCES_PER_ROW)
-            .flat_map(|z| {
-                (0..NUM_INSTANCES_PER_ROW).map(move |x| {
-                    let x = SPACE_BETWEEN * (x as f32 - NUM_INSTANCES_PER_ROW as f32 / 2.0);
-                    let z = SPACE_BETWEEN * (z as f32 - NUM_INSTANCES_PER_ROW as f32 / 2.0);
-
-                    let position = cgmath::Vector3 { x, y: 0.0, z };
-                    
-                    // Print all mesh box positions
-                    println!("MESH BOX: grid[{}][{}] = position({:.1}, {:.1}, {:.1})", z, x, position.x, position.y, position.z);
-
-                    let rotation = if position.is_zero() {
-                        cgmath::Quaternion::from_axis_angle(
-                            cgmath::Vector3::unit_z(),
-                            cgmath::Deg(0.0),
-                        )
-                    } else {
-                        cgmath::Quaternion::from_axis_angle(position.normalize(), cgmath::Deg(45.0))
-                    };
-
-                    Instance { position, rotation }
-                })
-            })
-            .collect::<Vec<_>>();
+        // Create only a single instance at the center position
+        let instances = vec![
+            Instance {
+                position: cgmath::Vector3 { x: 0.0, y: 0.0, z: 0.0 },
+                rotation: cgmath::Quaternion::from_axis_angle(
+                    cgmath::Vector3::unit_z(),
+                    cgmath::Deg(0.0),
+                ),
+            }
+        ];
+        
+        println!("MESH BOX: Single instance at position(0.0, 0.0, 0.0)");
 
         let instance_data = instances.iter().map(Instance::to_raw).collect::<Vec<_>>();
         let instance_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -451,14 +407,29 @@ impl<'a> State<'a> {
 
         const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
         
-        let depth_texture =
-            texture::Texture::create_depth_texture(&device, &config, "depth_texture");
+        // Create depth texture directly without texture module
+        let depth_size = wgpu::Extent3d {
+            width: config.width.max(1),
+            height: config.height.max(1),
+            depth_or_array_layers: 1,
+        };
+        let depth_texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("depth_texture"),
+            size: depth_size,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Depth32Float,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+            view_formats: &[wgpu::TextureFormat::Depth32Float],
+        });
+        let depth_texture_view = depth_texture.create_view(&wgpu::TextureViewDescriptor::default());
 
         let render_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Render Pipeline Layout"),
                 bind_group_layouts: &[
-                    &texture_bind_group_layout,
+                    // Removed texture_bind_group_layout as we no longer use textures
                     &camera_bind_group_layout,
                     &light_bind_group_layout,
                 ],
@@ -679,7 +650,7 @@ impl<'a> State<'a> {
         // Create polygon pipeline
         let polygon_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("polygon_pipeline_layout"),
-            bind_group_layouts: &[&camera_bind_group_layout],
+            bind_group_layouts: &[&camera_bind_group_layout, &light_bind_group_layout],
             push_constant_ranges: &[],
         });
         
@@ -753,35 +724,7 @@ impl<'a> State<'a> {
             )
         };
 
-        let debug_material = {
-            let diffuse_bytes = include_bytes!("../res/cobble-diffuse.png");
-            let normal_bytes = include_bytes!("../res/cobble-normal.png");
-
-            let diffuse_texture = texture::Texture::from_bytes(
-                &device,
-                &queue,
-                diffuse_bytes,
-                "res/alt-diffuse.png",
-                false,
-            )
-            .unwrap();
-            let normal_texture = texture::Texture::from_bytes(
-                &device,
-                &queue,
-                normal_bytes,
-                "res/alt-normal.png",
-                true,
-            )
-            .unwrap();
-
-            model::Material::new(
-                &device,
-                "alt-material",
-                diffuse_texture,
-                normal_texture,
-                &texture_bind_group_layout,
-            )
-        };
+        // debug_material removed - materials no longer used in texture-free pipeline
 
         Self {
             window,
@@ -796,6 +739,7 @@ impl<'a> State<'a> {
             pipe_pipeline: Some(pipe_pipeline),
             polygon_pipeline: Some(polygon_pipeline),
             obj_model,
+            additional_mesh_models: Vec::new(), // Initialize with an empty vector
             point_model, // Assigned point model
             quad_point_model, // Assigned quad-based point model
             line_model,  // Assigned line model
@@ -812,13 +756,12 @@ impl<'a> State<'a> {
             instances,
             #[allow(dead_code)]
             instance_buffer,
-            depth_texture,
+            depth_texture_view,
             light_uniform,
             light_buffer,
             light_bind_group,
             light_render_pipeline,
-            #[allow(dead_code)]
-            debug_material,
+            // debug_material assignment removed - field no longer exists
             mouse_pressed: false,
         }
     }
@@ -839,8 +782,23 @@ impl<'a> State<'a> {
             self.config.width = new_size.width;
             self.config.height = new_size.height;
             self.surface.configure(&self.device, &self.config);
-            self.depth_texture =
-                texture::Texture::create_depth_texture(&self.device, &self.config, "depth_texture");
+            // Create new depth texture directly without texture module
+            let depth_size = wgpu::Extent3d {
+                width: self.config.width.max(1),
+                height: self.config.height.max(1),
+                depth_or_array_layers: 1,
+            };
+            let depth_texture = self.device.create_texture(&wgpu::TextureDescriptor {
+                label: Some("depth_texture"),
+                size: depth_size,
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Depth32Float,
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+                view_formats: &[wgpu::TextureFormat::Depth32Float],
+            });
+            self.depth_texture_view = depth_texture.create_view(&wgpu::TextureViewDescriptor::default());
         }
     }
 
@@ -955,6 +913,114 @@ impl<'a> State<'a> {
     }
     
     // The extract_line_vertices_from_buffer function has been removed as it was unused
+    
+    /// Load geometry data from a JSON file
+    async fn load_geometries_from_file(&mut self, path: &str) -> Result<(), Box<dyn std::error::Error>> {
+        println!("Loading geometries from file: {}", path);
+        
+        // Load geometry data from file
+        let geometry_data = geometry_loader::load_geometry_file(path).await?;
+        
+        // Process mesh data if available
+        if let Some(meshes) = &geometry_data.meshes {
+            if !meshes.is_empty() {
+                // Create an empty texture bind group layout since we removed all texture dependencies
+                let texture_bind_group_layout = 
+                    self.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                        entries: &[], // No entries needed anymore as we removed textures
+                        label: Some("texture_bind_group_layout"),
+                    });
+                
+                // Store all mesh models in a Vec
+                let mut mesh_models = Vec::new();
+                
+                // Load all meshes from the JSON file
+                for mesh_data in meshes {
+                    println!("Loading mesh: {}", mesh_data.name);
+                    
+                    // Create the model from each mesh data
+                    let model = geometry_loader::create_model_from_mesh_data(
+                        &self.device,
+                        &self.queue,
+                        mesh_data,
+                        &texture_bind_group_layout
+                    )?;
+                    
+                    mesh_models.push(model);
+                }
+                
+                // For backwards compatibility, set the first model as obj_model
+                if !mesh_models.is_empty() {
+                    self.obj_model = mesh_models.remove(0);
+                }
+                
+                // Store additional models in a new field
+                self.additional_mesh_models = mesh_models;
+            }
+        }
+        
+        // Process point data if available
+        if let Some(points) = &geometry_data.points {
+            if !points.is_empty() {
+                // Load the first point cloud
+                let first_point_set = &points[0];
+                println!("Loading point cloud: {}", first_point_set.name);
+                
+                // Create the quad point model directly
+                let quad_point_model = geometry_loader::create_quad_point_model_from_point_data(
+                    &self.device,
+                    first_point_set
+                );
+                
+                // Use the model directly
+                self.quad_point_model = Some(quad_point_model);
+            }
+        }
+        
+        // We don't load lines from JSON files as requested by the user
+        // Lines are created directly in State::new using geometry_generator::create_grid_lines
+        // This preserves the original XYZ grid with grey lines
+        
+        // Process pipe data if available
+        if let Some(pipes) = &geometry_data.pipes {
+            if !pipes.is_empty() {
+                // Load the first pipe set
+                let first_pipe_set = &pipes[0];
+                println!("Loading pipes: {}", first_pipe_set.name);
+                
+                // Create the pipe model
+                // Get raw vertices and indices from the geometry_loader
+                let pipe_model = geometry_loader::create_pipe_model_from_pipe_data(
+                    &self.device,
+                    first_pipe_set
+                );
+                
+                // Use the PipeModel directly since it's already in the correct format with vertex_buffer, index_buffer, and num_indices
+                self.pipe_model = Some(pipe_model);
+            }
+        }
+        
+        // Process polygon data if available
+        if let Some(polygons) = &geometry_data.polygons {
+            if !polygons.is_empty() {
+                // Load the first polygon set
+                let first_polygon_set = &polygons[0];
+                println!("Loading polygons: {}", first_polygon_set.name);
+                
+                // Create the polygon model
+                // Get raw vertices and indices from the geometry_loader
+                let polygon_model = geometry_loader::create_polygon_model_from_polygon_data(
+                    &self.device,
+                    first_polygon_set
+                );
+                
+                // Use the PolygonModel directly since it's already in the correct format with vertex_buffer, index_buffer, and num_indices
+                self.polygon_model = Some(polygon_model);
+            }
+        }
+        
+        Ok(())
+    }
     
     /// Create a grid of polygons matching other geometries
     fn create_sample_polygon(&mut self) {
@@ -1228,7 +1294,7 @@ impl<'a> State<'a> {
                     },
                 })],
                 depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                    view: &self.depth_texture.view,
+                    view: &self.depth_texture_view,
                     depth_ops: Some(wgpu::Operations {
                         load: wgpu::LoadOp::Clear(1.0),
                         store: wgpu::StoreOp::Store,
@@ -1253,12 +1319,23 @@ impl<'a> State<'a> {
                     
                     // Render the mesh model
                     render_pass.set_pipeline(&self.render_pipeline);
+                    // Draw main mesh model
                     render_pass.draw_model_instanced(
                         &self.obj_model,
                         0..self.instances.len() as u32,
                         &self.camera_bind_group,
                         &self.light_bind_group,
                     );
+                    
+                    // Draw all additional mesh models
+                    for model in &self.additional_mesh_models {
+                        render_pass.draw_model_instanced(
+                            model,
+                            0..1, // Only draw one instance for additional models
+                            &self.camera_bind_group,
+                            &self.light_bind_group,
+                        );
+                    }
 
                     // Render points if available - use the quad-based point model for better visuals
                     if let (Some(pipeline), Some(model)) = (&self.point_pipeline, &self.quad_point_model) {
@@ -1283,7 +1360,7 @@ impl<'a> State<'a> {
                                 },
                             })],
                             depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                                view: &self.depth_texture.view,
+                                view: &self.depth_texture_view,
                                 depth_ops: Some(wgpu::Operations {
                                     load: wgpu::LoadOp::Load,
                                     store: wgpu::StoreOp::Store,
@@ -1310,16 +1387,23 @@ impl<'a> State<'a> {
                     // Render polygons if available
                     if let (Some(pipeline), Some(model)) = (&self.polygon_pipeline, &self.polygon_model) {
                         render_pass.set_pipeline(pipeline);
-                        render_pass.draw_polygons(model, &self.camera_bind_group);
+                        render_pass.draw_polygons(model, &self.camera_bind_group, &self.light_bind_group);
                     }
                     
-                    // Commented out regular line rendering in favor of 3D pipe lines
-                    /*
+                    // Regular line rendering for grid lines to be visible by default
                     if let (Some(pipeline), Some(model)) = (&self.line_pipeline, &self.line_model) {
                         render_pass.set_pipeline(pipeline);
-                        render_pass.draw_lines(model, &self.camera_bind_group);
+                        
+                        // Use direct drawing approach to avoid trait issues
+                        render_pass.set_vertex_buffer(0, model.vertex_buffer.slice(..));
+                        render_pass.set_bind_group(0, &self.camera_bind_group, &[]);
+                        render_pass.draw(0..model.num_vertices, 0..1);
                     }
-                    */
+                    // Render polygons loaded from JSON in All mode
+                    if let (Some(pipeline), Some(model)) = (&self.polygon_pipeline, &self.polygon_model) {
+                        render_pass.set_pipeline(pipeline);
+                        render_pass.draw_polygons(model, &self.camera_bind_group, &self.light_bind_group);
+                    }
                 },
                 RenderMode::Points => {
                     // Render only points using quad-based rendering for better visuals
@@ -1346,7 +1430,7 @@ impl<'a> State<'a> {
                                 },
                             })],
                             depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                                view: &self.depth_texture.view,
+                                view: &self.depth_texture_view,
                                 depth_ops: Some(wgpu::Operations {
                                     load: wgpu::LoadOp::Load,
                                     store: wgpu::StoreOp::Store,
@@ -1363,13 +1447,15 @@ impl<'a> State<'a> {
                         render_pass.set_pipeline(pipeline);
                         render_pass.draw_pipes(model, &self.camera_bind_group);
                     }
-                    // Commented out regular line rendering in favor of 3D pipe lines
-                    /*
+                    // Regular line rendering for grid lines to be visible by default
                     if let (Some(pipeline), Some(model)) = (&self.line_pipeline, &self.line_model) {
                         render_pass.set_pipeline(pipeline);
-                        render_pass.draw_lines(model, &self.camera_bind_group);
+                        
+                        // Use direct drawing approach to avoid trait issues
+                        render_pass.set_vertex_buffer(0, model.vertex_buffer.slice(..));
+                        render_pass.set_bind_group(0, &self.camera_bind_group, &[]);
+                        render_pass.draw(0..model.num_vertices, 0..1);
                     }
-                    */
                 },
                 RenderMode::RegularLines => {
                     // Render regular lines without 3D pipes
@@ -1388,7 +1474,8 @@ impl<'a> State<'a> {
                     if self.polygon_model.is_none() {
                         // Release the render pass to modify state
                         drop(render_pass);
-                        self.create_sample_polygon();
+                        // Create sample polygon if it doesn't exist - DISABLED
+                        // self.create_sample_polygon();
                         // Re-acquire render pass
                         render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                             label: Some("Render Pass"),
@@ -1401,7 +1488,7 @@ impl<'a> State<'a> {
                                 },
                             })],
                             depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                                view: &self.depth_texture.view,
+                                view: &self.depth_texture_view,
                                 depth_ops: Some(wgpu::Operations {
                                     load: wgpu::LoadOp::Load,
                                     store: wgpu::StoreOp::Store,
@@ -1416,19 +1503,22 @@ impl<'a> State<'a> {
                     // Render the polygon model
                     if let (Some(pipeline), Some(model)) = (&self.polygon_pipeline, &self.polygon_model) {
                         render_pass.set_pipeline(pipeline);
-                        render_pass.draw_polygons(model, &self.camera_bind_group);
+                        render_pass.draw_polygons(model, &self.camera_bind_group, &self.light_bind_group);
                     }
                 },
                 RenderMode::Meshes => {
                     // Render the light and mesh models
                     render_pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
                     render_pass.set_pipeline(&self.light_render_pipeline);
+                    
+                    // Draw the main mesh model light
                     render_pass.draw_light_model(
                         &self.obj_model,
                         &self.camera_bind_group,
                         &self.light_bind_group,
                     );
                     
+                    // Draw the main mesh model
                     render_pass.set_pipeline(&self.render_pipeline);
                     render_pass.draw_model_instanced(
                         &self.obj_model,
@@ -1436,6 +1526,17 @@ impl<'a> State<'a> {
                         &self.camera_bind_group,
                         &self.light_bind_group,
                     );
+                    
+                    // Draw all additional mesh models
+                    for mesh_model in &self.additional_mesh_models {
+                        // Draw each mesh model with instancing
+                        render_pass.draw_model_instanced(
+                            mesh_model,
+                            0..self.instances.len() as u32,
+                            &self.camera_bind_group,
+                            &self.light_bind_group,
+                        );
+                    }
                 },
             }
         }
@@ -1536,7 +1637,19 @@ pub async fn run() {
         resize_closure.forget();
     }
 
-    let mut state = State::new(&window).await; // NEW!
+    // Create the initial state
+    let mut state = State::new(&window).await;
+    
+    // Load geometries from the JSON file
+    if let Err(err) = state.load_geometries_from_file("assets/sample_geometry.json").await {
+        log::error!("Failed to load geometries from file: {}", err);
+    } else {
+        log::info!("Successfully loaded geometries from file");
+    }
+    
+    // Only grid lines and JSON-loaded geometry should be displayed
+    // Sample hardcoded geometry creation removed as per user request
+    
     let mut last_render_time = instant::Instant::now();
     event_loop.run(move |event, control_flow| {
         match event {

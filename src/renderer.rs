@@ -1,7 +1,7 @@
 use cgmath::prelude::*;
 use winit::window::Window;
 
-use crate::{model, camera, texture, instance::Instance, RenderMode};
+use crate::{model, camera, instance::Instance, RenderMode};
 
 #[repr(C)]
 #[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
@@ -56,7 +56,7 @@ pub struct Renderer<'a> {
     pub camera_bind_group: wgpu::BindGroup,
     pub instances: Vec<Instance>,
     pub instance_buffer: wgpu::Buffer,
-    pub depth_texture: texture::Texture,
+    pub depth_texture_view: wgpu::TextureView,
     pub light_uniform: LightUniform,
     pub light_buffer: wgpu::Buffer,
     pub light_bind_group: wgpu::BindGroup,

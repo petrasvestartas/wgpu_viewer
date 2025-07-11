@@ -11,7 +11,7 @@
 //! - `Model`: A collection of meshes with materials
 //! - `DrawModel` & `DrawLight` traits: Rendering abstractions for meshes
 
-use crate::texture;
+// Texture module no longer used
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
@@ -21,6 +21,7 @@ pub struct ModelVertex {
     pub normal: [f32; 3],
     pub tangent: [f32; 3],
     pub bitangent: [f32; 3],
+    pub color: [f32; 3],
 }
 
 impl ModelVertex {
@@ -55,6 +56,11 @@ impl ModelVertex {
                     shader_location: 4,
                     format: wgpu::VertexFormat::Float32x3,
                 },
+                wgpu::VertexAttribute {
+                    offset: mem::size_of::<[f32; 14]>() as wgpu::BufferAddress,
+                    shader_location: 12,
+                    format: wgpu::VertexFormat::Float32x3,
+                },
             ],
         }
     }
@@ -69,64 +75,19 @@ pub trait Vertex {
     fn desc() -> wgpu::VertexBufferLayout<'static>;
 }
 
-pub struct Material {
-    pub _name: String, // Using underscore to indicate unused field
-    pub _diffuse_texture: texture::Texture, // Using underscore to indicate unused field
-    pub _normal_texture: texture::Texture, // Using underscore to indicate unused field
-    pub bind_group: wgpu::BindGroup,
-}
-
-impl Material {
-    pub fn new(
-        device: &wgpu::Device,
-        name: &str,
-        diffuse_texture: texture::Texture,
-        normal_texture: texture::Texture,
-        layout: &wgpu::BindGroupLayout,
-    ) -> Self {
-        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&diffuse_texture.view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::Sampler(&diffuse_texture.sampler),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: wgpu::BindingResource::TextureView(&normal_texture.view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 3,
-                    resource: wgpu::BindingResource::Sampler(&normal_texture.sampler),
-                },
-            ],
-            label: Some(name),
-        });
-
-        Self {
-            _name: String::from(name),
-            _diffuse_texture: diffuse_texture,
-            _normal_texture: normal_texture,
-            bind_group,
-        }
-    }
-}
+// Material struct removed - not needed for texture-free pipeline
 
 pub struct Mesh {
     pub _name: String, // Using underscore to indicate unused field
     pub vertex_buffer: wgpu::Buffer,
     pub index_buffer: wgpu::Buffer,
     pub num_elements: u32,
-    pub material: usize,
+    // material field removed - not needed for texture-free pipeline
 }
 
 pub struct Model {
     pub meshes: Vec<Mesh>,
-    pub materials: Vec<Material>,
+    // materials field removed - not needed for texture-free pipeline
 }
 
 #[allow(dead_code)]
@@ -134,14 +95,12 @@ pub trait DrawModel<'a> {
     fn draw_mesh(
         &mut self,
         mesh: &'a Mesh,
-        material: &'a Material,
         camera_bind_group: &'a wgpu::BindGroup,
         light_bind_group: &'a wgpu::BindGroup,
     );
     fn draw_mesh_instanced(
         &mut self,
         mesh: &'a Mesh,
-        material: &'a Material,
         instances: std::ops::Range<u32>,
         camera_bind_group: &'a wgpu::BindGroup,
         light_bind_group: &'a wgpu::BindGroup,
@@ -169,26 +128,24 @@ where
     fn draw_mesh(
         &mut self,
         mesh: &'b Mesh,
-        material: &'b Material,
         camera_bind_group: &'b wgpu::BindGroup,
         light_bind_group: &'b wgpu::BindGroup,
     ) {
-        self.draw_mesh_instanced(mesh, material, 0..1, camera_bind_group, light_bind_group);
+        self.draw_mesh_instanced(mesh, 0..1, camera_bind_group, light_bind_group);
     }
 
     fn draw_mesh_instanced(
         &mut self,
         mesh: &'b Mesh,
-        material: &'b Material,
         instances: std::ops::Range<u32>,
         camera_bind_group: &'b wgpu::BindGroup,
         light_bind_group: &'b wgpu::BindGroup,
     ) {
         self.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
         self.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
-        self.set_bind_group(0, &material.bind_group, &[]);
-        self.set_bind_group(1, camera_bind_group, &[]);
-        self.set_bind_group(2, light_bind_group, &[]);
+        // No material bind group - removed for texture-free pipeline
+        self.set_bind_group(0, camera_bind_group, &[]);  // Camera at group 0
+        self.set_bind_group(1, light_bind_group, &[]);   // Light at group 1
         self.draw_indexed(0..mesh.num_elements, 0, instances);
     }
 
@@ -209,10 +166,9 @@ where
         light_bind_group: &'b wgpu::BindGroup,
     ) {
         for mesh in &model.meshes {
-            let material = &model.materials[mesh.material];
+            // Material access removed - not needed for texture-free pipeline
             self.draw_mesh_instanced(
                 mesh,
-                material,
                 instances.clone(),
                 camera_bind_group,
                 light_bind_group,

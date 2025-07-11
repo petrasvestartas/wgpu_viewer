@@ -146,6 +146,7 @@ pub trait DrawPolygons<'a> {
         &mut self,
         polygon_model: &'a PolygonModel,
         camera_bind_group: &'a wgpu::BindGroup,
+        light_bind_group: &'a wgpu::BindGroup,
     );
 }
 
@@ -154,10 +155,12 @@ impl<'a, 'b: 'a> DrawPolygons<'a> for wgpu::RenderPass<'b> {
         &mut self,
         polygon_model: &'a PolygonModel,
         camera_bind_group: &'a wgpu::BindGroup,
+        light_bind_group: &'a wgpu::BindGroup,
     ) {
         self.set_vertex_buffer(0, polygon_model.vertex_buffer.slice(..));
         self.set_index_buffer(polygon_model.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
         self.set_bind_group(0, camera_bind_group, &[]);
+        self.set_bind_group(1, light_bind_group, &[]);
         self.draw_indexed(0..polygon_model.num_indices, 0, 0..1);
     }
 }

@@ -16,6 +16,6 @@ pub mod model_point;
 #[path = "model_line.rs"]
 pub mod model_line;
 
-pub use model_mesh::{ModelVertex, Material, Mesh, Model, DrawModel, DrawLight, Vertex};
+pub use model_mesh::{ModelVertex, Mesh, Model, DrawModel, DrawLight, Vertex};
 pub use model_point::{PointModel};
 pub use model_line::{LineVertex, LineModel};

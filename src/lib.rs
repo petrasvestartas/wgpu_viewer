@@ -1,4 +1,11 @@
 use std::{f32::consts::PI, iter};
+use std::sync::mpsc;
+use std::path::Path;
+
+#[cfg(not(target_arch = "wasm32"))]
+use notify::{Watcher, RecursiveMode, EventKind};
+#[cfg(not(target_arch = "wasm32"))]
+type NotifyEvent = notify::Event;
 
 /// Specifies what type of geometry to render
 #[derive(Debug, Copy, Clone, PartialEq, Default)]
@@ -94,6 +101,9 @@ struct State<'a> {
     // debug_material removed - materials no longer used in texture-free pipeline
     // NEW!
     mouse_pressed: bool,
+    // File watching for live JSON reload (native builds only)
+    #[cfg(not(target_arch = "wasm32"))]
+    file_change_receiver: std::sync::mpsc::Receiver<notify::Result<NotifyEvent>>,
 }
 
 // create_render_pipeline function has been moved to pipeline.rs module
@@ -726,6 +736,18 @@ impl<'a> State<'a> {
 
         // debug_material removed - materials no longer used in texture-free pipeline
 
+        // Set up file watching for live JSON reload (native builds only)
+        #[cfg(not(target_arch = "wasm32"))]
+        let (tx, file_change_receiver) = mpsc::channel();
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let mut watcher = notify::recommended_watcher(tx).expect("Failed to create file watcher");
+            watcher.watch(Path::new("assets/sample_geometry.json"), RecursiveMode::NonRecursive)
+                .expect("Failed to watch JSON file");
+            // Keep watcher alive by leaking it (for simplicity)
+            std::mem::forget(watcher);
+        }
+
         Self {
             window,
             surface,
@@ -763,6 +785,8 @@ impl<'a> State<'a> {
             light_render_pipeline,
             // debug_material assignment removed - field no longer exists
             mouse_pressed: false,
+            #[cfg(not(target_arch = "wasm32"))]
+            file_change_receiver,
         }
     }
 
@@ -888,6 +912,10 @@ impl<'a> State<'a> {
     }
 
     fn update(&mut self, dt: std::time::Duration) {
+        // Check for file changes and reload geometry if needed (native builds only)
+        #[cfg(not(target_arch = "wasm32"))]
+        self.check_and_reload_geometry();
+        
         // UPDATED!
         self.camera_controller.update_camera(&mut self.camera, dt);
         self.camera_uniform
@@ -1020,6 +1048,28 @@ impl<'a> State<'a> {
         }
         
         Ok(())
+    }
+    
+    /// Check for file changes and reload geometry if needed (native builds only)
+    #[cfg(not(target_arch = "wasm32"))]
+    fn check_and_reload_geometry(&mut self) {
+        // Check for file change events without blocking
+        while let Ok(event_result) = self.file_change_receiver.try_recv() {
+            if let Ok(event) = event_result {
+                match event.kind {
+                    EventKind::Modify(_) | EventKind::Create(_) => {
+                        log::info!("JSON file changed, reloading geometry...");
+                        // Reload geometry using pollster (already available in dependencies)
+                        if let Err(e) = pollster::block_on(self.load_geometries_from_file("assets/sample_geometry.json")) {
+                            log::error!("Failed to reload geometry: {}", e);
+                        } else {
+                            log::info!("Geometry reloaded successfully");
+                        }
+                    }
+                    _ => {} // Ignore other events
+                }
+            }
+        }
     }
     
     /// Create a grid of polygons matching other geometries

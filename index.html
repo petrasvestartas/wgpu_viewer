@@ -10,10 +10,15 @@
 
 <body>
     <div id="wasm-example"></div>
+    <!-- Hot Reload Script -->
+    <script src="hot_reload_complete.js"></script>
+    
     <script type="module">
-        import init from "./pkg/wgpu_viewer.js";
+        import init, * as wasm from "./pkg/wgpu_viewer.js";
+        
         init().then(() => {
             console.log("WASM Loaded");
+            
             // Resize canvas if it exists
             setTimeout(() => {
                 const canvas = document.querySelector('canvas');
@@ -35,6 +40,46 @@
                     console.log(`Canvas size set to ${maxWidth}x${maxHeight}`);
                 }
             }, 100);
+            
+            // Initialize Hot Reload after canvas setup
+            setTimeout(() => {
+                console.log('🔄 Initializing Hot Reload...');
+                
+                // Set up geometry reload function
+                const reloadGeometry = async (newGeometryData) => {
+                    try {
+                        console.log('🔄 Reloading geometry from JSON...', newGeometryData);
+                        
+                        // Call your WASM reload function here
+                        // Note: You may need to expose this function from Rust
+                        if (wasm.reload_geometry) {
+                            wasm.reload_geometry(JSON.stringify(newGeometryData));
+                        } else {
+                            console.warn('⚠️ reload_geometry function not found in WASM module');
+                            console.log('Available WASM functions:', Object.keys(wasm));
+                        }
+                        
+                        console.log('✅ Geometry reload completed');
+                    } catch (error) {
+                        console.error('❌ Failed to reload geometry:', error);
+                    }
+                };
+                
+                // Start hot reload with optimized settings for hosted sites
+                const hotReload = initGeometryHotReload(reloadGeometry, {
+                    minInterval: 1000,    // Check every 1 second when active
+                    maxInterval: 5000,    // Slow to 5 seconds when idle
+                    backoffMultiplier: 1.5,
+                    resetAfterChange: true,
+                    useVisibilityAPI: true,
+                    useConditionalRequests: true
+                });
+                
+                console.log('🚀 Hot Reload System Active!');
+                console.log('   → Edit assets/sample_geometry.json to see live updates');
+                console.log('   → Look for 🔄 indicator in top-right corner');
+                
+            }, 500);
         });
     </script>
     <style>

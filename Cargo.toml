@@ -35,11 +35,16 @@ console_log = "1.0"
 wgpu = { version = "24.0", features = ["webgl"]}
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
+js-sys = "0.3"
 web-sys = { version = "0.3", features = [
     "Document",
     "Window",
     "Element",
     "Location",
+    "Request",
+    "RequestInit",
+    "Response",
+    "Headers",
 ]}
 instant = { version = "0.1", features = [ "wasm-bindgen" ] }
 

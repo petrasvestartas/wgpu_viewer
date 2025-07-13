@@ -61,5 +61,19 @@ fuser -k 8002/tcp
 
 ## TODO
 
-- [ ] Update the draw method when json file is changed.
-
+- [ ] Separate geometry crate: to implement a geometry class for:
+- [ ] a) point
+- [ ] b) vector
+- [ ] c) poincloud
+- [ ] d) line
+- [ ] e) frame
+- [ ] f) transformation
+- [ ] g) half-edge mesh
+- [ ] g_a) earclipping
+- [ ] g_b) edge line extraction
+- [ ] g_c) create a mesh representation from polygons (lists of points), where duplicate points have to be removed.
+- [ ] Create a polygon sample_geometry.json e.g. cube with faces composed from 4 face vertices instead of 3.
+- [ ] model_mesh.rs, shader files and lib.rs change to use the geometry from (check if it needs to be published first): https://github.com/petrasvestartas/openmodel/tree/main/src/geometry
+- [ ] Optional: Mesh backfaces with different color.
+- [ ] Optional: Mesh normals
+- [ ] Optional: Mesh windings

@@ -172,6 +172,9 @@ impl<'a> State<'a> {
             desired_maximum_frame_latency: 2,
         };
 
+        // Configure the surface with the device - this was missing and causing the macOS crash
+        surface.configure(&device, &config);
+
         // Create an empty texture bind group layout since we removed all texture dependencies
         let texture_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {

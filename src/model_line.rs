@@ -57,8 +57,8 @@ impl LineModel {
             usage: wgpu::BufferUsages::VERTEX,
         });
 
-        Self {
-            _name: String::from(name),
+        LineModel {
+            _name: name.to_string(),
             vertex_buffer,
             num_vertices: vertices.len() as u32,
         }

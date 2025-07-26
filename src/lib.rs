@@ -1943,7 +1943,7 @@ async fn fetch_and_reload_geometry() -> Result<(), String> {
     log::info!("🔄 Fetching fresh geometry data from server...");
     
     // Create request to fetch the geometry JSON with cache busting
-    let mut opts = RequestInit::new();
+    let opts = RequestInit::new();
     opts.set_method("GET");
     
     // Add timestamp to URL for cache busting

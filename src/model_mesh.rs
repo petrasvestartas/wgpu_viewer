@@ -1,15 +1,20 @@
 //! # Mesh Model Module
 //! 
-//! This module provides functionality for handling 3D mesh models.
+//! This module provides functionality for handling 3D mesh models using OpenModel geometry.
 //! It defines data structures and traits for loading, storing, and rendering
 //! polygonal 3D models with materials, textures, and lighting support.
 //!
 //! Key components:
-//! - `ModelVertex`: Vertex structure for 3D meshes with positions, normals, etc.
+//! - `ModelVertex`: GPU vertex structure for 3D meshes with positions, normals, etc.
 //! - `Material`: Represents surface properties with texture maps
 //! - `Mesh`: A single mesh with vertices and indices
 //! - `Model`: A collection of meshes with materials
 //! - `DrawModel` & `DrawLight` traits: Rendering abstractions for meshes
+//! - OpenModel integration: Bridge between OpenModel Mesh and GPU structures
+
+use wgpu::util::DeviceExt;
+use openmodel::geometry::Mesh as OpenModelMesh;
+use openmodel::primitives::Color as OpenModelColor;
 
 // Texture module no longer used
 
@@ -88,6 +93,111 @@ pub struct Mesh {
 pub struct Model {
     pub meshes: Vec<Mesh>,
     // materials field removed - not needed for texture-free pipeline
+}
+
+impl Mesh {
+    /// Create a new Mesh from vertices and indices
+    pub fn new(device: &wgpu::Device, name: &str, vertices: &[ModelVertex], indices: &[u32]) -> Self {
+        let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some(&format!("{} Vertex Buffer", name)),
+            contents: bytemuck::cast_slice(vertices),
+            usage: wgpu::BufferUsages::VERTEX,
+        });
+        
+        let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some(&format!("{} Index Buffer", name)),
+            contents: bytemuck::cast_slice(indices),
+            usage: wgpu::BufferUsages::INDEX,
+        });
+
+        Self {
+            _name: name.to_string(),
+            vertex_buffer,
+            index_buffer,
+            num_elements: indices.len() as u32,
+        }
+    }
+
+    /// Create a Mesh from an OpenModel Mesh
+    pub fn from_openmodel_mesh(device: &wgpu::Device, name: &str, openmodel_mesh: &OpenModelMesh) -> Self {
+        let mut vertices = Vec::new();
+        let mut indices = Vec::new();
+        let mut vertex_map = std::collections::HashMap::new();
+        let mut next_index = 0u32;
+
+        // Get vertex normals from OpenModel mesh
+        let vertex_normals = openmodel_mesh.vertex_normals();
+
+        // Convert OpenModel mesh to GPU format
+        for (face_key, face_vertices) in openmodel_mesh.get_face_data() {
+            // Triangulate the face (assuming it's a polygon)
+            if face_vertices.len() >= 3 {
+                // For each triangle in the face (fan triangulation)
+                for i in 1..face_vertices.len() - 1 {
+                    let triangle_vertices = [face_vertices[0], face_vertices[i], face_vertices[i + 1]];
+                    
+                    for &vertex_key in &triangle_vertices {
+                        if let Some(&existing_index) = vertex_map.get(&vertex_key) {
+                            indices.push(existing_index);
+                        } else {
+                            // Get vertex position
+                            if let Some(position) = openmodel_mesh.vertex_position(vertex_key) {
+                                // Get vertex normal (default to up if not available)
+                                let normal = vertex_normals.get(&vertex_key)
+                                    .map(|n| [n.x as f32, n.y as f32, n.z as f32])
+                                    .unwrap_or([0.0, 0.0, 1.0]);
+
+                                // Get color from mesh data (default to white)
+                                let color = if openmodel_mesh.data.has_color() {
+                                    let color_data = openmodel_mesh.data.get_color();
+                                    [color_data[0] as f32 / 255.0, color_data[1] as f32 / 255.0, color_data[2] as f32 / 255.0]
+                                } else {
+                                    [1.0, 1.0, 1.0] // Default white
+                                };
+
+                                let model_vertex = ModelVertex {
+                                    position: [position.x as f32, position.y as f32, position.z as f32],
+                                    tex_coords: [0.0, 0.0], // Default texture coordinates
+                                    normal,
+                                    tangent: [1.0, 0.0, 0.0], // Default tangent
+                                    bitangent: [0.0, 1.0, 0.0], // Default bitangent
+                                    color,
+                                };
+
+                                vertices.push(model_vertex);
+                                vertex_map.insert(vertex_key, next_index);
+                                indices.push(next_index);
+                                next_index += 1;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        Self::new(device, name, &vertices, &indices)
+    }
+}
+
+impl Model {
+    /// Create a new Model from a collection of meshes
+    pub fn new(meshes: Vec<Mesh>) -> Self {
+        Self { meshes }
+    }
+
+    /// Create a Model from an OpenModel Mesh (single mesh)
+    pub fn from_openmodel_mesh(device: &wgpu::Device, name: &str, openmodel_mesh: &OpenModelMesh) -> Self {
+        let mesh = Mesh::from_openmodel_mesh(device, name, openmodel_mesh);
+        Self::new(vec![mesh])
+    }
+
+    /// Create a Model from multiple OpenModel Meshes
+    pub fn from_openmodel_meshes(device: &wgpu::Device, openmodel_meshes: &[(String, OpenModelMesh)]) -> Self {
+        let meshes: Vec<Mesh> = openmodel_meshes.iter()
+            .map(|(name, mesh)| Mesh::from_openmodel_mesh(device, name, mesh))
+            .collect();
+        Self::new(meshes)
+    }
 }
 
 #[allow(dead_code)]

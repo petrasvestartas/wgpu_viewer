@@ -3,10 +3,20 @@
 //! This module provides functionality for rendering polygons from vertex lists.
 //! It defines data structures and traits for storing and rendering collections
 //! of polygon vertices with position and color attributes.
+//! 
+//! OpenModel Integration:
+//! - Integrates OpenModel Pline (polyline) geometry for polygon representation
+//! - Converts OpenModel Point coordinates (f64) to GPU vertex format (f32)
+//! - Handles color conversion from OpenModel Color (0-255) to GPU (0.0-1.0)
 
 use wgpu::util::DeviceExt;
 // Only import what we need from cgmath
 // No cgmath imports needed in this module
+
+// OpenModel imports for polygon geometry
+use openmodel::geometry::Pline as OpenModelPline;
+use openmodel::geometry::Point as OpenModelPoint;
+use openmodel::primitives::Color as OpenModelColor;
 
 // Configuration constants
 #[allow(dead_code)]
@@ -106,38 +116,91 @@ impl PolygonModel {
     }
     
     // Create a model for multiple polygons
-    #[allow(dead_code)]
     pub fn from_polygon_list(
         device: &wgpu::Device,
         name: &str,
         polygons: &[Vec<[f32; 3]>],
         colors: &[[f32; 3]],
     ) -> Self {
-        let mut all_vertices = Vec::new();
-        let mut all_indices = Vec::new();
-        let mut vertex_offset = 0;
-        
-        for (i, polygon) in polygons.iter().enumerate() {
-            let color = if i < colors.len() { colors[i] } else { POLYGON_COLOR };
-            
+        let mut vertices = Vec::new();
+        let mut indices = Vec::new();
+        let mut vertex_offset = 0u32;
+
+        for (polygon, color) in polygons.iter().zip(colors.iter()) {
             // Add vertices for this polygon
-            for &pos in polygon {
-                all_vertices.push(PolygonVertex { position: pos, color });
+            for position in polygon {
+                vertices.push(PolygonVertex {
+                    position: *position,
+                    color: *color,
+                });
             }
-            
-            // Add indices for triangulation (simple triangle fan)
+
+            // Triangulate the polygon using fan triangulation
             if polygon.len() >= 3 {
-                for j in 1..(polygon.len() - 1) {
-                    all_indices.push(vertex_offset); // First vertex as center
-                    all_indices.push(vertex_offset + j as u32); // Current vertex
-                    all_indices.push(vertex_offset + j as u32 + 1); // Next vertex
+                for i in 1..polygon.len() - 1 {
+                    indices.push(vertex_offset);
+                    indices.push(vertex_offset + i as u32);
+                    indices.push(vertex_offset + (i + 1) as u32);
                 }
             }
-            
+
             vertex_offset += polygon.len() as u32;
         }
-        
-        Self::new(device, name, &all_vertices, &all_indices)
+
+        Self::new(device, name, &vertices, &indices)
+    }
+
+    /// Create a PolygonModel from an OpenModel Pline (polyline)
+    /// Converts OpenModel Point coordinates (f64) to GPU vertex format (f32)
+    pub fn from_openmodel_pline(device: &wgpu::Device, name: &str, pline: &OpenModelPline) -> Self {
+        let color = if pline.data.has_color() {
+            let color_data = pline.data.get_color();
+            [color_data[0] as f32 / 255.0, color_data[1] as f32 / 255.0, color_data[2] as f32 / 255.0]
+        } else {
+            [1.0, 1.0, 1.0] // Default white
+        };
+
+        let positions: Vec<[f32; 3]> = pline.points.iter()
+            .map(|point| [point.x as f32, point.y as f32, point.z as f32])
+            .collect();
+
+        Self::from_positions(device, name, &positions, color)
+    }
+
+    /// Create a PolygonModel from multiple OpenModel Plines
+    pub fn from_openmodel_plines(device: &wgpu::Device, name: &str, plines: &[OpenModelPline]) -> Self {
+        let mut polygons = Vec::new();
+        let mut colors = Vec::new();
+
+        for pline in plines {
+            let color = if pline.data.has_color() {
+                let color_data = pline.data.get_color();
+                [color_data[0] as f32 / 255.0, color_data[1] as f32 / 255.0, color_data[2] as f32 / 255.0]
+            } else {
+                [1.0, 1.0, 1.0] // Default white
+            };
+
+            let positions: Vec<[f32; 3]> = pline.points.iter()
+                .map(|point| [point.x as f32, point.y as f32, point.z as f32])
+                .collect();
+
+            polygons.push(positions);
+            colors.push(color);
+        }
+
+        Self::from_polygon_list(device, name, &polygons, &colors)
+    }
+
+    /// Create a PolygonModel from OpenModel Pline with custom color override
+    pub fn from_openmodel_pline_with_color(device: &wgpu::Device, name: &str, pline: &OpenModelPline, color: &OpenModelColor) -> Self {
+        let (r, g, b, _a) = color.to_float();
+        let gpu_color = [r, g, b];
+
+        let positions: Vec<[f32; 3]> = pline.points.iter()
+            .map(|point| [point.x as f32, point.y as f32, point.z as f32])
+            .collect();
+
+        Self::from_positions(device, name, &positions, gpu_color)
     }
 }
 

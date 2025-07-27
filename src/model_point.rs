@@ -1,17 +1,20 @@
 //! # Point Cloud Model Module
 //! 
-//! This module provides functionality for handling 3D point cloud models.
+//! This module provides functionality for handling 3D point cloud models using OpenModel geometry.
 //! It defines data structures and traits for storing and rendering
 //! collections of 3D points with position, color, and size attributes.
 //!
 //! Key components:
-//! - `PointVertex`: Vertex structure for point clouds with position, color, and size
+//! - `PointVertex`: GPU vertex structure for point clouds with position, color, and size
 //! - `PointModel`: A collection of points with rendering properties
 //! - `DrawPoints` trait: Rendering abstraction for point clouds
+//! - OpenModel integration: Bridge between OpenModel Point/PointCloud and GPU structures
 //! - `generate_point_cloud`: Utility function to generate point clouds from instances
 
 use wgpu::util::DeviceExt;
 use crate::instance::Instance;
+use openmodel::geometry::{Point as OpenModelPoint, PointCloud as OpenModelPointCloud};
+use openmodel::primitives::Color as OpenModelColor;
 // use cgmath::prelude::*;  // Not currently used
 
 // Configuration constants
@@ -59,6 +62,24 @@ impl PointVertex {
                     format: wgpu::VertexFormat::Float32,
                 },
             ],
+        }
+    }
+
+    /// Create a PointVertex from an OpenModel Point with default color and size
+    pub fn from_openmodel_point(point: &OpenModelPoint) -> Self {
+        PointVertex {
+            position: [point.x as f32, point.y as f32, point.z as f32],
+            color: [1.0, 1.0, 1.0], // Default white color
+            size: POINT_SIZE,
+        }
+    }
+
+    /// Create a PointVertex from an OpenModel Point with specified color and size
+    pub fn from_openmodel_point_with_color(point: &OpenModelPoint, color: &OpenModelColor, size: f32) -> Self {
+        PointVertex {
+            position: [point.x as f32, point.y as f32, point.z as f32],
+            color: [color.r as f32 / 255.0, color.g as f32 / 255.0, color.b as f32 / 255.0],
+            size,
         }
     }
 }
@@ -145,16 +166,40 @@ pub struct QuadPointModel {
 impl PointModel {
     pub fn new(device: &wgpu::Device, name: &str, vertices: &[PointVertex]) -> Self {
         let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some(&format!("{} Vertex Buffer", name)),
+            label: Some(&format!("{} Point Vertex Buffer", name)),
             contents: bytemuck::cast_slice(vertices),
             usage: wgpu::BufferUsages::VERTEX,
         });
 
         Self {
-            _name: String::from(name),
+            _name: name.to_string(),
             vertex_buffer,
             num_vertices: vertices.len() as u32,
         }
+    }
+
+    /// Create a PointModel from an OpenModel PointCloud
+    pub fn from_openmodel_pointcloud(device: &wgpu::Device, name: &str, pointcloud: &OpenModelPointCloud) -> Self {
+        let vertices: Vec<PointVertex> = pointcloud.points.iter().enumerate().map(|(i, point)| {
+            let color = if i < pointcloud.colors.len() {
+                &pointcloud.colors[i]
+            } else {
+                // Default white color if no color specified
+                &OpenModelColor::new(255, 255, 255, 255)
+            };
+            PointVertex::from_openmodel_point_with_color(point, color, POINT_SIZE)
+        }).collect();
+
+        Self::new(device, name, &vertices)
+    }
+
+    /// Create a PointModel from a collection of OpenModel Points with default colors
+    pub fn from_openmodel_points(device: &wgpu::Device, name: &str, points: &[OpenModelPoint]) -> Self {
+        let vertices: Vec<PointVertex> = points.iter()
+            .map(|point| PointVertex::from_openmodel_point(point))
+            .collect();
+
+        Self::new(device, name, &vertices)
     }
 
     /// Convert this point model into a QuadPointModel for billboard rendering
@@ -312,6 +357,33 @@ where
             self.draw(0..quad_model.num_vertices, 0..1);
         }
     }
+}
+
+/// Creates a sample OpenModel PointCloud for testing
+#[allow(dead_code)]
+pub fn create_sample_openmodel_pointcloud() -> OpenModelPointCloud {
+    use openmodel::primitives::Xform;
+    
+    // Create sample points
+    let points = vec![
+        OpenModelPoint::new(0.0, 0.0, 0.0),
+        OpenModelPoint::new(1.0, 0.0, 0.0),
+        OpenModelPoint::new(0.0, 1.0, 0.0),
+        OpenModelPoint::new(0.0, 0.0, 1.0),
+    ];
+    
+    // Create sample colors (red, green, blue, white)
+    let colors = vec![
+        OpenModelColor::new(255, 0, 0, 255),
+        OpenModelColor::new(0, 255, 0, 255),
+        OpenModelColor::new(0, 0, 255, 255),
+        OpenModelColor::new(255, 255, 255, 255),
+    ];
+    
+    // Create empty normals vector
+    let normals = vec![];
+    
+    OpenModelPointCloud::new(points, normals, colors)
 }
 
 /// Generates point cloud vertices for a series of cube instances

@@ -362,7 +362,7 @@ where
 /// Creates a sample OpenModel PointCloud for testing
 #[allow(dead_code)]
 pub fn create_sample_openmodel_pointcloud() -> OpenModelPointCloud {
-    use openmodel::primitives::Xform;
+
     
     // Create sample points
     let points = vec![

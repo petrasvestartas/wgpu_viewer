@@ -15,7 +15,6 @@ use wgpu::util::DeviceExt;
 
 // OpenModel imports for polygon geometry
 use openmodel::geometry::Pline as OpenModelPline;
-use openmodel::geometry::Point as OpenModelPoint;
 use openmodel::primitives::Color as OpenModelColor;
 
 // Configuration constants
@@ -31,6 +30,7 @@ pub struct PolygonVertex {
 }
 
 impl PolygonVertex {
+    #[allow(dead_code)]
     pub fn desc() -> wgpu::VertexBufferLayout<'static> {
         use std::mem;
         wgpu::VertexBufferLayout {
@@ -116,6 +116,7 @@ impl PolygonModel {
     }
     
     // Create a model for multiple polygons
+    #[allow(dead_code)]
     pub fn from_polygon_list(
         device: &wgpu::Device,
         name: &str,
@@ -152,6 +153,7 @@ impl PolygonModel {
 
     /// Create a PolygonModel from an OpenModel Pline (polyline)
     /// Converts OpenModel Point coordinates (f64) to GPU vertex format (f32)
+    #[allow(dead_code)]
     pub fn from_openmodel_pline(device: &wgpu::Device, name: &str, pline: &OpenModelPline) -> Self {
         let color = if pline.data.has_color() {
             let color_data = pline.data.get_color();
@@ -168,6 +170,7 @@ impl PolygonModel {
     }
 
     /// Create a PolygonModel from multiple OpenModel Plines
+    #[allow(dead_code)]
     pub fn from_openmodel_plines(device: &wgpu::Device, name: &str, plines: &[OpenModelPline]) -> Self {
         let mut polygons = Vec::new();
         let mut colors = Vec::new();
@@ -192,6 +195,7 @@ impl PolygonModel {
     }
 
     /// Create a PolygonModel from OpenModel Pline with custom color override
+    #[allow(dead_code)]
     pub fn from_openmodel_pline_with_color(device: &wgpu::Device, name: &str, pline: &OpenModelPline, color: &OpenModelColor) -> Self {
         let (r, g, b, _a) = color.to_float();
         let gpu_color = [r, g, b];
@@ -204,6 +208,7 @@ impl PolygonModel {
     }
 }
 
+#[allow(dead_code)]
 pub trait DrawPolygons<'a> {
     fn draw_polygons(
         &mut self,

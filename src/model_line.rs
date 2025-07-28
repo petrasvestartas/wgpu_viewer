@@ -45,6 +45,7 @@ impl LineVertex {
     }
 
     /// Create a LineVertex from position and color
+    #[allow(dead_code)]
     pub fn new(position: [f32; 3], color: [f32; 3]) -> Self {
         LineVertex { position, color }
     }
@@ -73,6 +74,7 @@ impl LineModel {
     }
 
     /// Create a LineModel from an OpenModel Line with default color
+    #[allow(dead_code)]
     pub fn from_openmodel_line(device: &wgpu::Device, name: &str, line: &OpenModelLine) -> Self {
         let color = if line.data.has_color() {
             let color_data = line.data.get_color();
@@ -90,6 +92,7 @@ impl LineModel {
     }
 
     /// Create a LineModel from a collection of OpenModel Lines
+    #[allow(dead_code)]
     pub fn from_openmodel_lines(device: &wgpu::Device, name: &str, lines: &[OpenModelLine]) -> Self {
         let mut vertices = Vec::new();
 
@@ -109,6 +112,7 @@ impl LineModel {
     }
 
     /// Create a LineModel from an OpenModel Line with specified color
+    #[allow(dead_code)]
     pub fn from_openmodel_line_with_color(device: &wgpu::Device, name: &str, line: &OpenModelLine, color: &OpenModelColor) -> Self {
         let color_array = [color.r as f32 / 255.0, color.g as f32 / 255.0, color.b as f32 / 255.0];
         

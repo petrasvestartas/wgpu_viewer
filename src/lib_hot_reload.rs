@@ -5,6 +5,7 @@ use std::sync::mpsc;
 #[cfg(not(target_arch = "wasm32"))]
 use notify::EventKind;
 #[cfg(not(target_arch = "wasm32"))]
+#[allow(dead_code)]
 type NotifyEvent = notify::Event;
 
 // WASM hot reload communication
@@ -78,6 +79,7 @@ pub fn check_reload_flag(state: &mut State) {
 
 /// Check for file changes and reload geometry if needed (native builds only)
 #[cfg(not(target_arch = "wasm32"))]
+#[allow(dead_code)]
 pub fn check_and_reload_geometry(state: &mut State, file_change_receiver: &mpsc::Receiver<notify::Result<NotifyEvent>>) {
     // Check for file change events without blocking
     while let Ok(event_result) = file_change_receiver.try_recv() {

@@ -14,7 +14,6 @@
 
 use wgpu::util::DeviceExt;
 use openmodel::geometry::Mesh as OpenModelMesh;
-use openmodel::primitives::Color as OpenModelColor;
 
 // Texture module no longer used
 
@@ -129,7 +128,7 @@ impl Mesh {
         let vertex_normals = openmodel_mesh.vertex_normals();
 
         // Convert OpenModel mesh to GPU format
-        for (face_key, face_vertices) in openmodel_mesh.get_face_data() {
+        for (_face_key, face_vertices) in openmodel_mesh.get_face_data() {
             // Triangulate the face (assuming it's a polygon)
             if face_vertices.len() >= 3 {
                 // For each triangle in the face (fan triangulation)

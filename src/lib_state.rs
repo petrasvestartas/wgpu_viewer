@@ -58,7 +58,7 @@ impl<'a> State<'a> {
         let size = window.inner_size();
 
         // Initialize GPU context
-        let (instance, surface, adapter, device, queue, config) = 
+        let (_instance, surface, _adapter, device, queue, config) = 
             init_gpu_context(window, size).await?;
 
         // Configure the surface with the device - this was missing and causing the macOS crash
@@ -329,7 +329,7 @@ async fn init_pipelines(
     const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
 
     // Create empty texture bind group layout
-    let texture_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+    let _texture_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
         entries: &[],
         label: Some("texture_bind_group_layout"),
     });

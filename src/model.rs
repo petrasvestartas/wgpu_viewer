@@ -30,10 +30,10 @@ pub mod model_polygon;
 
 // Re-export all model types and traits
 pub use model_mesh::{ModelVertex, Mesh, Model, DrawModel, DrawLight, Vertex};
-pub use model_point::{PointModel, PointVertex, QuadPointModel};
-pub use model_line::{LineVertex, LineModel, DrawLines};
-pub use model_pipe::{PipeVertex, PipeModel, PipeSegment, DrawPipes};
-pub use model_polygon::{PolygonVertex, PolygonModel, DrawPolygons};
+pub use model_point::{PointModel};
+pub use model_line::{LineVertex, LineModel};
+pub use model_pipe::{PipeModel};
+pub use model_polygon::{PolygonModel};
 
 // OpenModel imports for unified geometry handling
 use openmodel::geometry::{
@@ -43,11 +43,11 @@ use openmodel::geometry::{
     Pline as OpenModelPline,
     PointCloud as OpenModelPointCloud,
 };
-use openmodel::primitives::Color as OpenModelColor;
 
 /// Unified OpenModel geometry collection for mixed model types
 /// This enum allows handling different OpenModel geometry types in a unified way
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub enum OpenModelGeometry {
     Point(OpenModelPoint),
     PointCloud(OpenModelPointCloud),
@@ -58,11 +58,13 @@ pub enum OpenModelGeometry {
 
 /// Unified model creation from OpenModel geometries
 /// This provides a high-level interface for creating GPU models from OpenModel data
+#[allow(dead_code)]
 pub struct UnifiedModelFactory;
 
 impl UnifiedModelFactory {
     /// Create appropriate GPU models from a collection of mixed OpenModel geometries
     /// Returns separate model collections for each geometry type
+    #[allow(dead_code)]
     pub fn create_models_from_openmodel_geometries(
         device: &wgpu::Device,
         name_prefix: &str,
@@ -71,7 +73,7 @@ impl UnifiedModelFactory {
         let mut point_models = Vec::new();
         let mut line_models = Vec::new();
         let mut mesh_models = Vec::new();
-        let mut pipe_models = Vec::new();
+        let pipe_models = Vec::new();
         let mut polygon_models = Vec::new();
         
         for (i, geometry) in geometries.iter().enumerate() {
@@ -111,6 +113,7 @@ impl UnifiedModelFactory {
     }
     
     /// Create pipe models from OpenModel lines with automatic mesh generation
+    #[allow(dead_code)]
     pub fn create_pipe_models_from_openmodel_lines(
         device: &wgpu::Device,
         name: &str,
@@ -121,6 +124,7 @@ impl UnifiedModelFactory {
 }
 
 /// Collection of all model types created from OpenModel geometries
+#[allow(dead_code)]
 pub struct UnifiedModelCollection {
     pub point_models: Vec<PointModel>,
     pub line_models: Vec<LineModel>,
@@ -131,6 +135,7 @@ pub struct UnifiedModelCollection {
 
 impl OpenModelGeometry {
     /// Get the type name as a string for naming purposes
+    #[allow(dead_code)]
     pub fn type_name(&self) -> &'static str {
         match self {
             OpenModelGeometry::Point(_) => "point",
@@ -142,6 +147,7 @@ impl OpenModelGeometry {
     }
     
     /// Check if the geometry has color information
+    #[allow(dead_code)]
     pub fn has_color(&self) -> bool {
         match self {
             OpenModelGeometry::Point(point) => point.data.has_color(),
@@ -153,6 +159,7 @@ impl OpenModelGeometry {
     }
     
     /// Get the color if available
+    #[allow(dead_code)]
     pub fn get_color(&self) -> Option<[u8; 3]> {
         if self.has_color() {
             match self {

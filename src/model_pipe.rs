@@ -14,16 +14,19 @@
 use wgpu::util::DeviceExt;
 use cgmath::*;
 use openmodel::geometry::Line as OpenModelLine;
-use openmodel::geometry::Point as OpenModelPoint;
 use openmodel::primitives::Color as OpenModelColor;
 
 // Configuration constants
+#[allow(dead_code)]
 pub const PIPE_RADIUS: f32 = 0.05;  // Default pipe radius/thickness
+#[allow(dead_code)]
 pub const PIPE_COLOR: [f32; 3] = [0.0, 0.0, 0.0];  // Bright red for debugging
+#[allow(dead_code)]
 pub const PIPE_RESOLUTION: u32 = 12;  // Number of sides for cylinder approximation
 
 // Pipe segment definition
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct PipeSegment {
     pub start: [f32; 3],
     pub end: [f32; 3],
@@ -33,11 +36,13 @@ pub struct PipeSegment {
 
 impl PipeSegment {
     /// Create a new PipeSegment
+    #[allow(dead_code)]
     pub fn new(start: [f32; 3], end: [f32; 3], color: [f32; 3], radius: f32) -> Self {
         Self { start, end, color, radius }
     }
 
     /// Create a PipeSegment from an OpenModel Line
+    #[allow(dead_code)]
     pub fn from_openmodel_line(line: &OpenModelLine) -> Self {
         let color = if line.data.has_color() {
             let color_data = line.data.get_color();
@@ -58,6 +63,7 @@ impl PipeSegment {
     }
 
     /// Create a PipeSegment from an OpenModel Line with specified color and radius
+    #[allow(dead_code)]
     pub fn from_openmodel_line_with_params(line: &OpenModelLine, color: &OpenModelColor, radius: f32) -> Self {
         let color_array = [color.r as f32 / 255.0, color.g as f32 / 255.0, color.b as f32 / 255.0];
         
@@ -73,12 +79,14 @@ impl PipeSegment {
 // Vertex structure for cylinders - simplified for flat color shader
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
+#[allow(dead_code)]
 pub struct PipeVertex {
     pub position: [f32; 3],
     pub color: [f32; 3],
 }
 
 impl PipeVertex {
+    #[allow(dead_code)]
     pub fn desc() -> wgpu::VertexBufferLayout<'static> {
         use std::mem;
         wgpu::VertexBufferLayout {
@@ -111,6 +119,7 @@ pub struct PipeModel {
 }
 
 impl PipeModel {
+    #[allow(dead_code)]
     pub fn new(
         device: &wgpu::Device, 
         name: &str, 
@@ -163,12 +172,14 @@ impl PipeModel {
     }
 
     /// Create a PipeModel from an OpenModel Line
+    #[allow(dead_code)]
     pub fn from_openmodel_line(device: &wgpu::Device, name: &str, line: &OpenModelLine) -> Self {
         let pipe_segment = PipeSegment::from_openmodel_line(line);
         Self::new(device, name, &[pipe_segment], PIPE_RESOLUTION)
     }
 
     /// Create a PipeModel from a collection of OpenModel Lines
+    #[allow(dead_code)]
     pub fn from_openmodel_lines(device: &wgpu::Device, name: &str, lines: &[OpenModelLine]) -> Self {
         let pipe_segments: Vec<PipeSegment> = lines.iter()
             .map(|line| PipeSegment::from_openmodel_line(line))
@@ -177,6 +188,7 @@ impl PipeModel {
     }
 
     /// Create a PipeModel from an OpenModel Line with specified color and radius
+    #[allow(dead_code)]
     pub fn from_openmodel_line_with_params(device: &wgpu::Device, name: &str, line: &OpenModelLine, color: &OpenModelColor, radius: f32) -> Self {
         let pipe_segment = PipeSegment::from_openmodel_line_with_params(line, color, radius);
         Self::new(device, name, &[pipe_segment], PIPE_RESOLUTION)
@@ -184,6 +196,7 @@ impl PipeModel {
 
     /// Create a PipeModel from OpenModel Lines using OpenModel's built-in pipe mesh generation
     /// This method leverages OpenModel's Line::get_mesh() functionality for more accurate pipe generation
+    #[allow(dead_code)]
     pub fn from_openmodel_lines_with_mesh_generation(device: &wgpu::Device, name: &str, lines: &mut [OpenModelLine]) -> Self {
         let mut all_vertices = Vec::new();
         let mut all_indices = Vec::new();
@@ -211,7 +224,7 @@ impl PipeModel {
                 let mut vertex_map = std::collections::HashMap::new();
                 let mut next_local_index = 0u32;
                 
-                for (face_key, face_vertices) in openmodel_mesh.get_face_data() {
+                for (_face_key, face_vertices) in openmodel_mesh.get_face_data() {
                     if face_vertices.len() >= 3 {
                         // Triangulate the face (fan triangulation)
                         for i in 1..face_vertices.len() - 1 {
@@ -265,6 +278,7 @@ impl PipeModel {
 }
 
 // Create a cylinder mesh along a pipe segment with consistent counter-clockwise winding
+#[allow(dead_code)]
 fn create_cylinder_for_pipe(
     segment: &PipeSegment,
     sides: u32,
@@ -383,6 +397,7 @@ fn create_cylinder_for_pipe(
     (vertices, indices)
 }
 
+#[allow(dead_code)]
 pub trait DrawPipes<'a> {
     fn draw_pipes(
         &mut self,

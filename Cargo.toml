@@ -23,6 +23,7 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 notify = "6.1"
 openmodel = { path = "../openmodel" }
+uuid = { version = "1.17", features = ["js"] }
 
 [dependencies.image]
 version = "0.24"

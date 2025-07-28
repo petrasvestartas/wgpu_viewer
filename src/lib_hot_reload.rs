@@ -1,4 +1,5 @@
 use crate::State;
+#[allow(unused_imports)]
 use crate::geometry_loader;
 use std::sync::mpsc;
 

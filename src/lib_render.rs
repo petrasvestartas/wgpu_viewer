@@ -81,8 +81,8 @@ pub fn render(state: &mut State) -> Result<(), wgpu::SurfaceError> {
         let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("Render Pass"),
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                view: &view,
-                resolve_target: None,
+                view: &state.multisample_texture_view, // Render to multisample texture
+                resolve_target: Some(&view), // Resolve to final texture
                 ops: wgpu::Operations {
                     load: wgpu::LoadOp::Clear(wgpu::Color {
                         r: 0.9,
@@ -94,7 +94,7 @@ pub fn render(state: &mut State) -> Result<(), wgpu::SurfaceError> {
                 },
             })],
             depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                view: &state.depth_texture_view,
+                view: &state.multisample_depth_texture_view, // Use multisample depth texture
                 depth_ops: Some(wgpu::Operations {
                     load: wgpu::LoadOp::Clear(1.0),
                     store: wgpu::StoreOp::Store,

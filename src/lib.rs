@@ -76,6 +76,42 @@ impl<'a> State<'a> {
                 view_formats: &[wgpu::TextureFormat::Depth32Float],
             });
             self.depth_texture_view = depth_texture.create_view(&wgpu::TextureViewDescriptor::default());
+
+            // Recreate multisample textures with new size
+            self.multisample_texture = self.device.create_texture(&wgpu::TextureDescriptor {
+                label: Some("multisample_texture"),
+                size: wgpu::Extent3d {
+                    width: self.config.width,
+                    height: self.config.height,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 4, // 4x MSAA for web compatibility
+                dimension: wgpu::TextureDimension::D2,
+                format: self.config.format,
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+                view_formats: &[self.config.format],
+            });
+
+            self.multisample_texture_view = self.multisample_texture.create_view(&wgpu::TextureViewDescriptor::default());
+
+            // Recreate multisample depth texture
+            self.multisample_depth_texture = self.device.create_texture(&wgpu::TextureDescriptor {
+                label: Some("multisample_depth_texture"),
+                size: wgpu::Extent3d {
+                    width: self.config.width,
+                    height: self.config.height,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 4, // 4x MSAA for web compatibility
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Depth32Float,
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+                view_formats: &[wgpu::TextureFormat::Depth32Float],
+            });
+
+            self.multisample_depth_texture_view = self.multisample_depth_texture.create_view(&wgpu::TextureViewDescriptor::default());
         }
     }
 

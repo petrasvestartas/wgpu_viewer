@@ -26,6 +26,10 @@ pub struct State<'a> {
     pub line_pipeline: Option<wgpu::RenderPipeline>,
     pub pipe_pipeline: Option<wgpu::RenderPipeline>,
     pub polygon_pipeline: Option<wgpu::RenderPipeline>,
+    pub multisample_texture: wgpu::Texture,
+    pub multisample_texture_view: wgpu::TextureView,
+    pub multisample_depth_texture: wgpu::Texture,
+    pub multisample_depth_texture_view: wgpu::TextureView,
     pub obj_model: model::Model,
     pub additional_mesh_models: Vec<model::Model>,
     pub point_model: Option<model::PointModel>,
@@ -79,6 +83,42 @@ impl<'a> State<'a> {
         let (render_pipeline, point_pipeline, line_pipeline, pipe_pipeline, polygon_pipeline, light_render_pipeline) = 
             init_pipelines(&device, &config, &camera_bind_group_layout, &light_bind_group_layout).await;
 
+        // Create multisample textures for MSAA
+        let multisample_texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("multisample_texture"),
+            size: wgpu::Extent3d {
+                width: config.width.max(1),
+                height: config.height.max(1),
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 4, // 4x MSAA for web compatibility
+            dimension: wgpu::TextureDimension::D2,
+            format: config.format,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            view_formats: &[config.format],
+        });
+
+        let multisample_texture_view = multisample_texture.create_view(&wgpu::TextureViewDescriptor::default());
+
+        // Create multisample depth texture
+        let multisample_depth_texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("multisample_depth_texture"),
+            size: wgpu::Extent3d {
+                width: config.width.max(1),
+                height: config.height.max(1),
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 4, // 4x MSAA for web compatibility
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Depth32Float,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            view_formats: &[wgpu::TextureFormat::Depth32Float],
+        });
+
+        let multisample_depth_texture_view = multisample_depth_texture.create_view(&wgpu::TextureViewDescriptor::default());
+
         // Load default models and create instances
         let (obj_model, instances, instance_buffer) = 
             init_models_and_instances(&device, &queue).await;
@@ -97,6 +137,10 @@ impl<'a> State<'a> {
             line_pipeline,
             pipe_pipeline,
             polygon_pipeline,
+            multisample_texture,
+            multisample_texture_view,
+            multisample_depth_texture,
+            multisample_depth_texture_view,
             obj_model,
             additional_mesh_models: Vec::new(),
             point_model: None,
@@ -416,7 +460,7 @@ async fn init_pipelines(
                 bias: wgpu::DepthBiasState::default(),
             }),
             multisample: wgpu::MultisampleState {
-                count: 1,
+                count: 4, // Enable 4x MSAA for web compatibility
                 mask: !0,
                 alpha_to_coverage_enabled: false,
             },
@@ -474,7 +518,7 @@ async fn init_pipelines(
                 bias: wgpu::DepthBiasState::default(),
             }),
             multisample: wgpu::MultisampleState {
-                count: 1,
+                count: 4, // Enable 4x MSAA for web compatibility
                 mask: !0,
                 alpha_to_coverage_enabled: false,
             },
@@ -532,7 +576,7 @@ async fn init_pipelines(
                 bias: wgpu::DepthBiasState::default(),
             }),
             multisample: wgpu::MultisampleState {
-                count: 1,
+                count: 4, // Enable 4x MSAA for web compatibility
                 mask: !0,
                 alpha_to_coverage_enabled: false,
             },
@@ -590,7 +634,7 @@ async fn init_pipelines(
                 bias: wgpu::DepthBiasState::default(),
             }),
             multisample: wgpu::MultisampleState {
-                count: 1,
+                count: 4, // Enable 4x MSAA for web compatibility
                 mask: !0,
                 alpha_to_coverage_enabled: false,
             },

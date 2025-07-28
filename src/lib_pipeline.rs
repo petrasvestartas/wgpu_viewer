@@ -50,7 +50,7 @@ pub fn create_render_pipeline(
             bias: wgpu::DepthBiasState::default(),
         }),
         multisample: wgpu::MultisampleState {
-            count: 1,
+            count: 4, // Enable 4x MSAA for web compatibility
             mask: !0,
             alpha_to_coverage_enabled: false,
         },

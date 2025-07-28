@@ -8,7 +8,7 @@
 //! - `ModelVertex`: GPU vertex structure for 3D meshes with positions, normals, etc.
 //! - `Material`: Represents surface properties with texture maps
 //! - `Mesh`: A single mesh with vertices and indices
-//! - `Model`: A collection of meshes with materials
+//! - `Model`: A collection of meshes with materials and edge visualization
 //! - `DrawModel` & `DrawLight` traits: Rendering abstractions for meshes
 //! - OpenModel integration: Bridge between OpenModel Mesh and GPU structures
 
@@ -91,6 +91,7 @@ pub struct Mesh {
 
 pub struct Model {
     pub meshes: Vec<Mesh>,
+    pub edge_meshes: Vec<Mesh>, // Edge visualization as pipes
     // materials field removed - not needed for texture-free pipeline
 }
 
@@ -119,6 +120,11 @@ impl Mesh {
 
     /// Create a Mesh from an OpenModel Mesh
     pub fn from_openmodel_mesh(device: &wgpu::Device, name: &str, openmodel_mesh: &OpenModelMesh) -> Self {
+        Self::from_openmodel_mesh_with_color(device, name, openmodel_mesh, [1.0, 1.0, 1.0]) // Default white
+    }
+
+    /// Create a Mesh from an OpenModel Mesh with specified color
+    pub fn from_openmodel_mesh_with_color(device: &wgpu::Device, name: &str, openmodel_mesh: &OpenModelMesh, color: [f32; 3]) -> Self {
         let mut vertices = Vec::new();
         let mut indices = Vec::new();
         let mut vertex_map = std::collections::HashMap::new();
@@ -146,21 +152,13 @@ impl Mesh {
                                     .map(|n| [n.x as f32, n.y as f32, n.z as f32])
                                     .unwrap_or([0.0, 0.0, 1.0]);
 
-                                // Get color from mesh data (default to white)
-                                let color = if openmodel_mesh.data.has_color() {
-                                    let color_data = openmodel_mesh.data.get_color();
-                                    [color_data[0] as f32 / 255.0, color_data[1] as f32 / 255.0, color_data[2] as f32 / 255.0]
-                                } else {
-                                    [1.0, 1.0, 1.0] // Default white
-                                };
-
                                 let model_vertex = ModelVertex {
                                     position: [position.x as f32, position.y as f32, position.z as f32],
                                     tex_coords: [0.0, 0.0], // Default texture coordinates
                                     normal,
                                     tangent: [1.0, 0.0, 0.0], // Default tangent
                                     bitangent: [0.0, 1.0, 0.0], // Default bitangent
-                                    color,
+                                    color, // Use the specified color
                                 };
 
                                 vertices.push(model_vertex);
@@ -181,13 +179,20 @@ impl Mesh {
 impl Model {
     /// Create a new Model from a collection of meshes
     pub fn new(meshes: Vec<Mesh>) -> Self {
-        Self { meshes }
+        Self { 
+            meshes,
+            edge_meshes: Vec::new(),
+        }
     }
 
     /// Create a Model from an OpenModel Mesh (single mesh)
     pub fn from_openmodel_mesh(device: &wgpu::Device, name: &str, openmodel_mesh: &OpenModelMesh) -> Self {
         let mesh = Mesh::from_openmodel_mesh(device, name, openmodel_mesh);
-        Self::new(vec![mesh])
+        let edge_meshes = Self::create_edge_meshes(device, openmodel_mesh);
+        Self { 
+            meshes: vec![mesh],
+            edge_meshes,
+        }
     }
 
     /// Create a Model from multiple OpenModel Meshes
@@ -195,7 +200,47 @@ impl Model {
         let meshes: Vec<Mesh> = openmodel_meshes.iter()
             .map(|(name, mesh)| Mesh::from_openmodel_mesh(device, name, mesh))
             .collect();
-        Self::new(meshes)
+        
+        // Create edge meshes from all OpenModel meshes
+        let mut edge_meshes = Vec::new();
+        for (_name, mesh) in openmodel_meshes {
+            let edges = Self::create_edge_meshes(device, mesh);
+            edge_meshes.extend(edges);
+        }
+        
+        Self { 
+            meshes,
+            edge_meshes,
+        }
+    }
+
+    /// Create edge visualization meshes from an OpenModel mesh
+    fn create_edge_meshes(device: &wgpu::Device, openmodel_mesh: &OpenModelMesh) -> Vec<Mesh> {
+        // Extract edges as pipes using OpenModel's extract_edges_as_pipes method
+        let edge_radius = 0.005; // Much thinner radius for edge visualization
+        let edge_pipes = openmodel_mesh.extract_edges_as_pipes(edge_radius, None);
+        
+        // Convert OpenModel edge pipes to GPU meshes
+        let mut edge_meshes = Vec::new();
+        for (i, edge_pipe) in edge_pipes.iter().enumerate() {
+            let edge_mesh = Mesh::from_openmodel_mesh_with_color(
+                device, 
+                &format!("edge_{}", i), 
+                edge_pipe,
+                [0.25, 0.25, 0.25] // Black color for edges
+            );
+            edge_meshes.push(edge_mesh);
+        }
+        
+        edge_meshes
+    }
+
+    /// Get all meshes (surface + edges) for rendering
+    pub fn all_meshes(&self) -> Vec<&Mesh> {
+        let mut all = Vec::new();
+        all.extend(self.meshes.iter());
+        all.extend(self.edge_meshes.iter());
+        all
     }
 }
 
@@ -222,6 +267,20 @@ pub trait DrawModel<'a> {
         light_bind_group: &'a wgpu::BindGroup,
     );
     fn draw_model_instanced(
+        &mut self,
+        model: &'a Model,
+        instances: std::ops::Range<u32>,
+        camera_bind_group: &'a wgpu::BindGroup,
+        light_bind_group: &'a wgpu::BindGroup,
+    );
+    
+    fn draw_model_with_edges(
+        &mut self,
+        model: &'a Model,
+        camera_bind_group: &'a wgpu::BindGroup,
+        light_bind_group: &'a wgpu::BindGroup,
+    );
+    fn draw_model_with_edges_instanced(
         &mut self,
         model: &'a Model,
         instances: std::ops::Range<u32>,
@@ -285,7 +344,42 @@ where
         }
     }
 
+    fn draw_model_with_edges(
+        &mut self,
+        model: &'b Model,
+        camera_bind_group: &'b wgpu::BindGroup,
+        light_bind_group: &'b wgpu::BindGroup,
+    ) {
+        self.draw_model_with_edges_instanced(model, 0..1, camera_bind_group, light_bind_group);
+    }
 
+    fn draw_model_with_edges_instanced(
+        &mut self,
+        model: &'b Model,
+        instances: std::ops::Range<u32>,
+        camera_bind_group: &'b wgpu::BindGroup,
+        light_bind_group: &'b wgpu::BindGroup,
+    ) {
+        // Draw surface meshes
+        for mesh in &model.meshes {
+            self.draw_mesh_instanced(
+                mesh,
+                instances.clone(),
+                camera_bind_group,
+                light_bind_group,
+            );
+        }
+        
+        // Draw edge meshes (as pipes)
+        for mesh in &model.edge_meshes {
+            self.draw_mesh_instanced(
+                mesh,
+                instances.clone(),
+                camera_bind_group,
+                light_bind_group,
+            );
+        }
+    }
 }
 
 #[allow(dead_code)]

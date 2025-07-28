@@ -281,7 +281,55 @@ pub fn create_model_from_mesh_data(
     
     meshes.push(mesh);
     
-    Ok(Model { meshes })
+    // Create edge visualization by converting to OpenModel mesh and extracting edges
+    let edge_meshes = create_edge_meshes_from_mesh_data(device, mesh_data);
+    
+    Ok(Model { 
+        meshes,
+        edge_meshes,
+    })
+}
+
+/// Create edge visualization meshes from mesh data
+fn create_edge_meshes_from_mesh_data(device: &wgpu::Device, mesh_data: &MeshData) -> Vec<Mesh> {
+    // Convert mesh data to OpenModel mesh for edge extraction
+    let mut openmodel_mesh = openmodel::geometry::Mesh::new();
+    
+    // Add vertices to OpenModel mesh
+    let mut vertex_keys = Vec::new();
+    for vertex in &mesh_data.vertices {
+        let point = openmodel::geometry::Point::new(vertex.position[0] as f64, vertex.position[1] as f64, vertex.position[2] as f64);
+        let key = openmodel_mesh.add_vertex(point, None);
+        vertex_keys.push(key);
+    }
+    
+    // Add faces to OpenModel mesh (assuming triangles)
+    for i in (0..mesh_data.indices.len()).step_by(3) {
+        if i + 2 < mesh_data.indices.len() {
+            let v1 = vertex_keys[mesh_data.indices[i] as usize];
+            let v2 = vertex_keys[mesh_data.indices[i + 1] as usize];
+            let v3 = vertex_keys[mesh_data.indices[i + 2] as usize];
+            let _face_key = openmodel_mesh.add_face(vec![v1, v2, v3], None);
+        }
+    }
+    
+    // Extract edges as pipes using OpenModel's extract_edges_as_pipes method
+    let edge_radius = 0.005; // Much thinner radius for edge visualization
+    let edge_pipes = openmodel_mesh.extract_edges_as_pipes(edge_radius, None);
+    
+    // Convert OpenModel edge pipes to GPU meshes
+    let mut edge_meshes = Vec::new();
+    for (i, edge_pipe) in edge_pipes.iter().enumerate() {
+        let edge_mesh = Mesh::from_openmodel_mesh_with_color(
+            device, 
+            &format!("{}_edge_{}", mesh_data.name, i), 
+            edge_pipe,
+            [0.0, 0.0, 0.0] // Black color for edges
+        );
+        edge_meshes.push(edge_mesh);
+    }
+    
+    edge_meshes
 }
 
 /// Convert JSON point data to a QuadPointModel

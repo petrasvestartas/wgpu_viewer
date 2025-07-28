@@ -154,17 +154,17 @@ fn render_all_mode<'a>(
     
     // Render the mesh model
     render_pass.set_pipeline(&state.render_pipeline);
-    // Draw main mesh model
-    render_pass.draw_model_instanced(
+    // Draw main mesh model with edge visualization
+    render_pass.draw_model_with_edges_instanced(
         &state.obj_model,
         0..state.instances.len() as u32,
         &state.camera_bind_group,
         &state.light_bind_group,
     );
     
-    // Draw all additional mesh models
+    // Draw all additional mesh models with edge visualization
     for model in &state.additional_mesh_models {
-        render_pass.draw_model_instanced(
+        render_pass.draw_model_with_edges_instanced(
             model,
             0..1, // Only draw one instance for additional models
             &state.camera_bind_group,
@@ -287,19 +287,19 @@ fn render_meshes_mode<'a>(
         &state.light_bind_group,
     );
     
-    // Draw the main mesh model
+    // Draw the main mesh model with edge visualization
     render_pass.set_pipeline(&state.render_pipeline);
-    render_pass.draw_model_instanced(
+    render_pass.draw_model_with_edges_instanced(
         &state.obj_model,
         0..state.instances.len() as u32,
         &state.camera_bind_group,
         &state.light_bind_group,
     );
     
-    // Draw all additional mesh models
+    // Draw all additional mesh models with edge visualization
     for mesh_model in &state.additional_mesh_models {
-        // Draw each mesh model with instancing
-        render_pass.draw_model_instanced(
+        // Draw each mesh model with instancing and edge visualization
+        render_pass.draw_model_with_edges_instanced(
             mesh_model,
             0..state.instances.len() as u32,
             &state.camera_bind_group,

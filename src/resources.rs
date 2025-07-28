@@ -177,5 +177,8 @@ pub async fn load_model(
         })
         .collect::<Vec<_>>();
 
-    Ok(model::Model { meshes })
+    Ok(model::Model { 
+        meshes,
+        edge_meshes: Vec::new(), // No edge visualization for OBJ files
+    })
 }

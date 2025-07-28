@@ -117,9 +117,9 @@ impl UnifiedModelFactory {
     pub fn create_pipe_models_from_openmodel_lines(
         device: &wgpu::Device,
         name: &str,
-        lines: &mut [OpenModelLine],
+        lines: &[OpenModelLine],
     ) -> Vec<PipeModel> {
-        vec![PipeModel::from_openmodel_lines_with_mesh_generation(device, name, lines)]
+        vec![PipeModel::from_openmodel_lines(device, name, lines)]
     }
 }
 

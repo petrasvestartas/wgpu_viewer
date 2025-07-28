@@ -320,10 +320,8 @@ pub fn create_pipe_model_from_pipe_data(
         })
         .collect();
     
-    // Default resolution for pipe segments
-    let resolution = crate::model_pipe::PIPE_RESOLUTION;
     // Create PipeModel
-    PipeModel::new(device, &pipe_data.name, &segments, resolution)
+    PipeModel::new(device, &pipe_data.name, &segments)
 }
 
 /// Convert JSON polygon data to a PolygonModel

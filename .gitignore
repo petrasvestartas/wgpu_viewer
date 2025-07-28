@@ -35,20 +35,51 @@ Cargo.lock
 .env.local
 
 # WebAssembly/Web specific
-# /pkg/
-# /wasm-pack-*/
-# *.wasm
-# *.wasm.d.ts
-# *.d.ts
-# *.js
-# *.js.map
-# node_modules/
-# npm-debug.log*
-# yarn-debug.log*
-# yarn-error.log*
+/pkg/
+/wasm-pack-*/
+*.wasm
+*.wasm.d.ts
+*.d.ts
+*.js
+*.js.map
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
 
 # Specific generated web files
-# /web/wgpu_viewer_bg.wasm
-# /web/wgpu_viewer_bg.wasm.d.ts
-# /web/wgpu_viewer.d.ts
-# /web/wgpu_viewer.js
+/web/wgpu_viewer_bg.wasm
+/web/wgpu_viewer_bg.wasm.d.ts
+/web/wgpu_viewer.d.ts
+/web/wgpu_viewer.js
+
+# Temporary and development files
+src/tmp/
+fix_drawer.sh
+webgpu_test.html
+
+# Empty directories
+shaders/
+resources/
+
+# Build artifacts (already covered by /target/ but being explicit)
+target/
+pkg/
+
+# OS specific
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Log files
+*.log
+*.log.*
+
+# Backup files
+*~
+*.bak
+*.backup
+
+# Temporary files
+*.tmp
+*.temp
